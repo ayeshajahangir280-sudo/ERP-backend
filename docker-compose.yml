@@ -1,0 +1,19 @@
+services:
+  web:
+    build: .
+    env_file: .env
+    ports: ["8000:8000"]
+    depends_on: [db, redis]
+    volumes: ["media:/app/media"]
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bakery_erp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+  redis:
+    image: redis:7-alpine
+volumes:
+  postgres_data:
+  media:
