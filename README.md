@@ -31,21 +31,28 @@ Dokploy **Docker Compose** service.
 3. Add these service environment variables in Dokploy:
 
    ```env
+   DJANGO_SECRET_KEY=generate-a-long-random-production-secret
+   DJANGO_DEBUG=False
+   DJANGO_ALLOWED_HOSTS=api.example.com
    DATABASE_URL=postgresql://...
-   CORS_ALLOW_ALL_ORIGINS=True
+   CORS_ALLOWED_ORIGINS=https://your-frontend.example.com
+   CSRF_TRUSTED_ORIGINS=https://api.example.com,https://your-frontend.example.com
    ACCESS_TOKEN_LIFETIME_MINUTES=60
    REFRESH_TOKEN_LIFETIME_DAYS=7
    TIME_ZONE=Asia/Dubai
+   GUNICORN_WORKERS=3
+   GUNICORN_TIMEOUT=120
    ```
 
 4. Deploy, then add a domain in Dokploy's **Domains** tab. Route it to container
    port `8000` and enable HTTPS. No manual Traefik labels are needed.
 5. Use `/api/health/` for health monitoring and `/api/docs/` for Swagger.
 
-The container automatically retries and applies migrations, collects static
-files, and starts Gunicorn. `ALLOWED_HOSTS` and CORS accept all hosts/origins as
-requested. The application trusts Dokploy's `X-Forwarded-Proto` header so HTTPS
-requests are recognized correctly behind its proxy.
+The container runs Django deployment checks, applies committed migrations,
+collects static files, and starts Gunicorn. Hosts, CORS origins, and CSRF origins
+must be configured explicitly. Do not add trailing slashes to origin values.
+The application trusts Dokploy's `X-Forwarded-Proto` header so HTTPS requests
+are recognized correctly behind its proxy.
 
 ### Docker Compose service
 
@@ -56,6 +63,11 @@ file explicitly injects that file into the service.
 
 Persistent uploaded files use the named `media` volume. The PostgreSQL database
 is external and supplied through `DATABASE_URL`.
+
+Purchase attachments are stored under `/app/media`. When using a Dockerfile
+Application instead of Compose, add a Dokploy persistent volume mounted at
+`/app/media`; otherwise uploaded attachments are lost when the container is
+replaced.
 
 Tests and validation:
 

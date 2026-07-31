@@ -2,24 +2,26 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PORT=8000
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-RUN addgroup --system django && adduser --system --ingroup django django
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-RUN chmod +x scripts/entrypoint.sh \
-    && mkdir -p /app/staticfiles /app/media \
-    && chown -R django:django /app
+RUN chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/staticfiles /app/media
 
-USER django
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health/' % os.environ.get('PORT','8000'), timeout=3)" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=3)" || exit 1
 
-ENTRYPOINT ["./scripts/entrypoint.sh"]
+CMD ["/app/entrypoint.sh"]
