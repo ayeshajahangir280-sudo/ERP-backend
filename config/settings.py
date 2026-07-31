@@ -38,6 +38,7 @@ TEMPLATES=[{"BACKEND":"django.template.backends.django.DjangoTemplates","DIRS":[
 AUTH_USER_MODEL="accounts.User"
 LANGUAGE_CODE="en-us"; TIME_ZONE=env("TIME_ZONE",default="Asia/Dubai"); USE_I18N=True; USE_TZ=True
 STATIC_URL="/static/"; STATIC_ROOT=BASE_DIR/"staticfiles"; MEDIA_URL="/media/"; MEDIA_ROOT=BASE_DIR/"media"; DEFAULT_AUTO_FIELD="django.db.models.BigAutoField"
+CORS_ALLOW_ALL_ORIGINS=env.bool("CORS_ALLOW_ALL_ORIGINS",default=False)
 CORS_ALLOWED_ORIGINS=[
     origin.rstrip("/")
     for origin in env.list(
