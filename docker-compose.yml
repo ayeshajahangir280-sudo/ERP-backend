@@ -22,7 +22,5 @@ services:
       - "8000"
     volumes:
       - media:/app/media
-
-      
 volumes:
   media:
