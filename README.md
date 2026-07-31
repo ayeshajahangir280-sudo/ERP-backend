@@ -17,6 +17,46 @@ python manage.py runserver
 
 Docker: `copy .env.example .env`, then run `docker compose up --build`.
 
+## Dokploy deployment
+
+Use either a Dokploy **Application** with build type **Dockerfile**, or a
+Dokploy **Docker Compose** service.
+
+### Dockerfile application (recommended)
+
+1. Connect `https://github.com/ayeshajahangir280-sudo/ERP-backend.git`, branch
+   `main`.
+2. Select build type **Dockerfile**, Dockerfile path `Dockerfile`, and context
+   path `.`.
+3. Add these service environment variables in Dokploy:
+
+   ```env
+   DATABASE_URL=postgresql://...
+   CORS_ALLOW_ALL_ORIGINS=True
+   ACCESS_TOKEN_LIFETIME_MINUTES=60
+   REFRESH_TOKEN_LIFETIME_DAYS=7
+   TIME_ZONE=Asia/Dubai
+   ```
+
+4. Deploy, then add a domain in Dokploy's **Domains** tab. Route it to container
+   port `8000` and enable HTTPS. No manual Traefik labels are needed.
+5. Use `/api/health/` for health monitoring and `/api/docs/` for Swagger.
+
+The container automatically retries and applies migrations, collects static
+files, and starts Gunicorn. `ALLOWED_HOSTS` and CORS accept all hosts/origins as
+requested. The application trusts Dokploy's `X-Forwarded-Proto` header so HTTPS
+requests are recognized correctly behind its proxy.
+
+### Docker Compose service
+
+Select Compose path `./docker-compose.yml`, add the same variables in Dokploy's
+Environment editor, deploy, and attach the domain to service `web` on port
+`8000`. Dokploy writes its environment editor values to `.env`; the Compose
+file explicitly injects that file into the service.
+
+Persistent uploaded files use the named `media` volume. The PostgreSQL database
+is external and supplied through `DATABASE_URL`.
+
 Tests and validation:
 
 ```powershell

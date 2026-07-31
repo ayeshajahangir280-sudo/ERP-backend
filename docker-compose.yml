@@ -1,19 +1,21 @@
 services:
   web:
-    build: .
-    env_file: .env
-    ports: ["8000:8000"]
-    depends_on: [db, redis]
-    volumes: ["media:/app/media"]
-  db:
-    image: postgres:16-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: bakery_erp
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes: ["postgres_data:/var/lib/postgresql/data"]
-  redis:
-    image: redis:7-alpine
+      DATABASE_URL: ${DATABASE_URL}
+      CORS_ALLOW_ALL_ORIGINS: ${CORS_ALLOW_ALL_ORIGINS:-True}
+      ACCESS_TOKEN_LIFETIME_MINUTES: ${ACCESS_TOKEN_LIFETIME_MINUTES:-60}
+      REFRESH_TOKEN_LIFETIME_DAYS: ${REFRESH_TOKEN_LIFETIME_DAYS:-7}
+      TIME_ZONE: ${TIME_ZONE:-Asia/Dubai}
+      PORT: 8000
+    expose:
+      - "8000"
+    volumes:
+      - media:/app/media
 volumes:
-  postgres_data:
   media:
