@@ -3,6 +3,7 @@ set -e
 
 python manage.py check --deploy
 python manage.py migrate --noinput
+python manage.py ensure_test_account
 python manage.py collectstatic --noinput
 
 exec gunicorn config.wsgi:application \
