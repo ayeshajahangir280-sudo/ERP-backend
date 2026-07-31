@@ -38,7 +38,22 @@ TEMPLATES=[{"BACKEND":"django.template.backends.django.DjangoTemplates","DIRS":[
 AUTH_USER_MODEL="accounts.User"
 LANGUAGE_CODE="en-us"; TIME_ZONE=env("TIME_ZONE",default="Asia/Dubai"); USE_I18N=True; USE_TZ=True
 STATIC_URL="/static/"; STATIC_ROOT=BASE_DIR/"staticfiles"; MEDIA_URL="/media/"; MEDIA_ROOT=BASE_DIR/"media"; DEFAULT_AUTO_FIELD="django.db.models.BigAutoField"
-CORS_ALLOWED_ORIGINS=[origin.rstrip("/") for origin in env.list("CORS_ALLOWED_ORIGINS",default=[]) if origin.strip()]
+CORS_ALLOWED_ORIGINS=[
+    origin.rstrip("/")
+    for origin in env.list(
+        "CORS_ALLOWED_ORIGINS",
+        default=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+        ],
+    )
+    if origin.strip()
+]
+CORS_ALLOWED_ORIGIN_REGEXES=[
+    r"^https://.*\.vercel\.app$",
+]
 SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO","https")
 USE_X_FORWARDED_HOST=True
 # API authentication is JWT-only, so DRF endpoints do not use cookie/session
