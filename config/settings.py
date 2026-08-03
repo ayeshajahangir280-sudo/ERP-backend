@@ -30,7 +30,7 @@ DATABASES = {
 INSTALLED_APPS = [
  "django.contrib.admin","django.contrib.auth","django.contrib.contenttypes","django.contrib.sessions","django.contrib.messages","django.contrib.staticfiles",
  "corsheaders","rest_framework","rest_framework_simplejwt.token_blacklist","django_filters","drf_spectacular",
- "apps.accounts","apps.locations","apps.master_data","apps.inventory","apps.purchasing","apps.recipes","apps.production","apps.transfers","apps.sales","apps.payments","apps.audit","apps.reports",
+ "apps.accounts","apps.locations","apps.master_data","apps.inventory","apps.purchasing","apps.recipes","apps.production","apps.transfers","apps.sales","apps.payments","apps.audit","apps.reports","apps.system_state",
 ]
 MIDDLEWARE = ["django.middleware.security.SecurityMiddleware","corsheaders.middleware.CorsMiddleware","whitenoise.middleware.WhiteNoiseMiddleware","django.contrib.sessions.middleware.SessionMiddleware","django.middleware.common.CommonMiddleware","django.middleware.csrf.CsrfViewMiddleware","django.contrib.auth.middleware.AuthenticationMiddleware","django.contrib.messages.middleware.MessageMiddleware","django.middleware.clickjacking.XFrameOptionsMiddleware"]
 ROOT_URLCONF="config.urls"; WSGI_APPLICATION="config.wsgi.application"; ASGI_APPLICATION="config.asgi.application"
