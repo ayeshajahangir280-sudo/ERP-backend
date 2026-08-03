@@ -37,3 +37,23 @@ class StockTransactionViewSet(ReadOnlyModelViewSet):
    remarks=f"Opening / externally produced finished goods|EXPIRY={expiry}",created_by=request.user,
   )
   return Response({"success":True,"message":"Existing finished goods added.","data":self.get_serializer(transaction).data},status=status.HTTP_201_CREATED)
+ @action(detail=False,methods=["post"],url_path="opening-raw-material")
+ def opening_raw_material(self,request):
+  from apps.locations.models import Location
+  from apps.master_data.models import RawMaterial
+  try:
+   material=RawMaterial.objects.get(pk=request.data.get("raw_material"),status="ACTIVE")
+   location=Location.objects.get(pk=request.data.get("location"),location_type="RAW_MATERIAL_WAREHOUSE",is_active=True)
+   quantity=Decimal(str(request.data.get("quantity",0)))
+   if quantity<=0: raise ValueError
+  except (RawMaterial.DoesNotExist,Location.DoesNotExist,ValueError,TypeError):
+   return Response({"success":False,"message":"A valid raw material, raw-material warehouse and positive quantity are required."},status=status.HTTP_400_BAD_REQUEST)
+  reference_id=uuid.uuid4()
+  transaction=StockTransaction.objects.create(
+   transaction_number=f"OPEN-RM-{reference_id}",transaction_date=timezone.now(),
+   transaction_type="STOCK_ADJUSTMENT_IN",reference_type="OpeningRawMaterial",reference_id=reference_id,
+   raw_material=material,destination_location=location,quantity_in=quantity,
+   unit=material.base_unit,unit_cost=material.current_average_cost,total_value=quantity*material.current_average_cost,
+   remarks="Opening raw-material stock",created_by=request.user,
+  )
+  return Response({"success":True,"message":"Opening raw-material stock added.","data":self.get_serializer(transaction).data},status=status.HTTP_201_CREATED)
