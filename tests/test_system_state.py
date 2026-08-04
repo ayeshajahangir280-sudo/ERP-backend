@@ -20,13 +20,20 @@ class ERPStateTests(TestCase):
     def test_state_round_trip(self):
         self.assertEqual(self.client.get("/api/erp-state/").json(), {"data": None, "revision": 0})
         database = {"purchaseInvoices": [{"id": "PI-1"}], "counters": {"PI": 1}}
-        response = self.client.put("/api/erp-state/", {"data": database}, format="json")
+        response = self.client.put("/api/erp-state/", {"data": database, "revision": 0}, format="json")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.client.get("/api/erp-state/").json()["data"], database)
 
     def test_state_requires_object(self):
-        response = self.client.put("/api/erp-state/", {"data": []}, format="json")
+        response = self.client.put("/api/erp-state/", {"data": [], "revision": 0}, format="json")
         self.assertEqual(response.status_code, 400)
+
+    def test_stale_state_write_is_rejected(self):
+        first=self.client.put("/api/erp-state/",{"data":{"counters":{}},"revision":0},format="json")
+        self.assertEqual(first.status_code,200)
+        stale=self.client.put("/api/erp-state/",{"data":{"counters":{"PI":99}},"revision":0},format="json")
+        self.assertEqual(stale.status_code,409)
+        self.assertEqual(self.client.get("/api/erp-state/").json()["data"],{"counters":{}})
 
     def test_delete_all_preserves_only_current_admin_and_empty_snapshot(self):
         User.objects.create_user(

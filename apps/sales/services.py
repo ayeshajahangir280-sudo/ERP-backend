@@ -7,7 +7,8 @@ from rest_framework.exceptions import ValidationError
 from apps.inventory.models import StockTransaction
 from apps.inventory.services import get_available_stock, get_average_cost
 from apps.inventory.posting import post_movement
-from .models import CustomerLedger, SalesInvoice
+from .models import CustomerLedger, SalesInvoice,SalesReturn,SalesReturnItem
+from apps.locations.models import Location
 
 
 @transaction.atomic
@@ -70,3 +71,39 @@ def cancel_sale(pk, user, reason):
     CustomerLedger.objects.create(customer=invoice.customer,transaction_date=timezone.localdate(),reference_type="SALE_CANCELLATION",reference_id=invoice.id,credit=invoice.grand_total)
     invoice.status="CANCELLED";invoice.cancelled_at=timezone.now();invoice.cancelled_by=user
     invoice.cancellation_reason=reason;invoice.outstanding_amount=0;invoice.save();return invoice
+
+@transaction.atomic
+def post_return(pk,user):
+ ret=SalesReturn.objects.select_for_update().select_related("original_sales_invoice").prefetch_related("items__original_sales_invoice_item").get(pk=pk)
+ invoice=SalesInvoice.objects.select_for_update().get(pk=ret.original_sales_invoice_id)
+ if ret.status not in {"DRAFT","SUBMITTED","APPROVED"}:raise ValidationError("Return has already been posted or cancelled.")
+ if invoice.status in {"DRAFT","CANCELLED"}:raise ValidationError("Returns require an active posted sales invoice.")
+ credit=Decimal("0")
+ for line in ret.items.all():
+  original=SalesInvoiceItem.objects.select_for_update().get(pk=line.original_sales_invoice_item_id)
+  if original.sales_invoice_id!=invoice.id or original.finished_product_id!=line.finished_product_id:raise ValidationError("Invalid original sales line.")
+  returned=SalesReturnItem.objects.filter(original_sales_invoice_item=original,sales_return__status="POSTED").exclude(sales_return=ret).aggregate(total=__import__("django.db.models",fromlist=["Sum"]).Sum("return_quantity"))["total"] or Decimal("0")
+  remaining=original.quantity-returned
+  if line.return_quantity<=0 or line.return_quantity>remaining:raise ValidationError(f"Return quantity exceeds the remaining returnable quantity ({remaining}).")
+  location=ret.return_location if line.condition=="SALEABLE" else Location.objects.get_or_create(code="SYS-DAMAGED",defaults={"name":"Damaged Stock","location_type":"DAMAGED_GOODS","is_inventory_location":True})[0]
+  line.previously_returned_quantity=returned;line.sold_quantity=original.quantity;line.unit_price=original.selling_price
+  ratio=line.return_quantity/original.quantity;line.credit_amount=(original.line_total*ratio).quantize(Decimal("0.01"));line.save()
+  post_movement(item=original.finished_product,location=location,quantity=line.return_quantity,direction="IN",transaction_number=f"{ret.return_number}-{line.id}",transaction_type="SALES_RETURN" if line.condition=="SALEABLE" else "DAMAGE",reference_type="SalesReturn",reference_id=ret.id,unit=original.unit,user=user,incoming_unit_cost=original.unit_cost_snapshot,remarks=ret.reason,audit_action="Post return",audit_module="sales_returns")
+  credit+=line.credit_amount
+ ret.subtotal=credit;ret.credit_total=credit;ret.status="POSTED";ret.posted_at=timezone.now();ret.posted_by=user;ret.save()
+ invoice.outstanding_amount=max(Decimal("0"),invoice.outstanding_amount-credit);invoice.save(update_fields=["outstanding_amount"])
+ CustomerLedger.objects.create(customer=ret.customer,transaction_date=ret.return_date,reference_type="SALES_RETURN",reference_id=ret.id,credit=credit)
+ return ret
+
+@transaction.atomic
+def cancel_return(pk,user,reason):
+ if not str(reason).strip():raise ValidationError("Cancellation reason is required.")
+ ret=SalesReturn.objects.select_for_update().get(pk=pk)
+ if ret.status!="POSTED":raise ValidationError("Only a posted return can be cancelled.")
+ originals=StockTransaction.objects.select_for_update().filter(reference_type="SalesReturn",reference_id=ret.id,is_reversal=False).order_by("-created_at")
+ for original in originals:
+  try:post_movement(item=original.finished_product,location=original.destination_location,quantity=original.quantity_in,direction="OUT",transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_OUT",reference_type="SalesReturn",reference_id=ret.id,unit=original.unit,user=user,outgoing_unit_cost=original.unit_cost,remarks=f"Return cancellation: {reason}",reversal_of=original,is_reversal=True,audit_action="Cancel return",audit_module="sales_returns")
+  except ValidationError:raise ValidationError("Return cannot be cancelled because returned stock has been used downstream.")
+ CustomerLedger.objects.create(customer=ret.customer,transaction_date=timezone.localdate(),reference_type="SALES_RETURN_CANCELLATION",reference_id=ret.id,debit=ret.credit_total)
+ invoice=SalesInvoice.objects.select_for_update().get(pk=ret.original_sales_invoice_id);invoice.outstanding_amount+=ret.credit_total;invoice.save(update_fields=["outstanding_amount"])
+ ret.status="CANCELLED";ret.cancelled_at=timezone.now();ret.cancelled_by=user;ret.cancellation_reason=reason;ret.save();return ret

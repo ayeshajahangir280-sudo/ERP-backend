@@ -19,10 +19,17 @@ class ERPStateView(APIView):
     @transaction.atomic
     def put(self, request):
         data = request.data.get("data")
+        expected_revision = request.data.get("revision")
         if not isinstance(data, dict):
             return Response({"detail": "data must be a JSON object"}, status=400)
+        if expected_revision is None:
+            return Response({"detail": "revision is required for optimistic locking"}, status=400)
 
-        state, _ = ERPState.objects.select_for_update().get_or_create(key="default")
+        state, created = ERPState.objects.select_for_update().get_or_create(key="default")
+        if created:
+            state.revision = 0
+        if int(expected_revision) != state.revision:
+            return Response({"detail": "ERP state is stale. Refresh before saving.", "revision": state.revision}, status=409)
         state.data = data
         state.revision += 1
         state.updated_by = request.user

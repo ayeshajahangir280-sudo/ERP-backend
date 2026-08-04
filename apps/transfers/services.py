@@ -52,3 +52,26 @@ def receive(transfer,user,lines,finished=False):
  if hasattr(transfer,"received_by"):transfer.received_by=user
  if hasattr(transfer,"received_date"):transfer.received_date=timezone.localdate()
  transfer.save();return transfer
+
+@transaction.atomic
+def cancel_transfer(transfer,user,reason):
+ if not str(reason).strip():raise ValidationError("Cancellation reason is required.")
+ transfer=transfer.__class__.objects.select_for_update().get(pk=transfer.pk)
+ if transfer.status=="CANCELLED":raise ValidationError("Transfer is already cancelled.")
+ if transfer.status in {"DRAFT","SUBMITTED","APPROVED"}:
+  transfer.status="CANCELLED";transfer.cancelled_at=timezone.now();transfer.cancelled_by=user;transfer.cancellation_reason=reason;transfer.save();return transfer
+ originals=list(StockTransaction.objects.select_for_update().filter(reference_type=transfer.__class__.__name__,reference_id=transfer.id,is_reversal=False).order_by("-created_at","-id"))
+ for original in originals:
+  if hasattr(original,"reversal"):raise ValidationError("Transfer has already been reversed.")
+  item=original.raw_material or original.finished_product
+  if original.quantity_in:
+   location=original.destination_location;direction="OUT";quantity=original.quantity_in
+   incoming_cost=None;outgoing_cost=original.unit_cost
+  else:
+   location=original.source_location;direction="IN";quantity=original.quantity_out
+   incoming_cost=original.unit_cost;outgoing_cost=None
+  try:
+   post_movement(item=item,location=location,quantity=quantity,direction=direction,transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_OUT" if direction=="OUT" else "STOCK_ADJUSTMENT_IN",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=original.unit,user=user,incoming_unit_cost=incoming_cost,outgoing_unit_cost=outgoing_cost,remarks=f"Transfer cancellation: {reason}",reversal_of=original,is_reversal=True,audit_action="Cancel",audit_module="transfers")
+  except ValidationError:
+   raise ValidationError("Transfer cannot be cancelled because its stock has been used downstream. Reverse the downstream documents first.")
+ transfer.status="CANCELLED";transfer.cancelled_at=timezone.now();transfer.cancelled_by=user;transfer.cancellation_reason=reason;transfer.save();return transfer

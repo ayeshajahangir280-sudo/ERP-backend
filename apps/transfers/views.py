@@ -4,7 +4,7 @@ from common.viewsets import AuditedModelViewSet
 from apps.accounts.permissions import HasModulePermission
 from .models import MaterialTransfer,FinishedGoodsTransfer
 from .serializers import MaterialTransferSerializer,FinishedGoodsTransferSerializer
-from .services import _transition,dispatch,receive
+from .services import _transition,dispatch,receive,cancel_transfer
 class BaseTransferViewSet(AuditedModelViewSet):
  permission_classes=[HasModulePermission];module_name="stock_transfers"
  @action(detail=True,methods=["post"])
@@ -15,5 +15,7 @@ class BaseTransferViewSet(AuditedModelViewSet):
  def dispatch(self,request,pk=None):return Response(self.get_serializer(dispatch(self.get_object(),request.user,isinstance(self.get_object(),FinishedGoodsTransfer))).data)
  @action(detail=True,methods=["post"])
  def receive(self,request,pk=None):return Response(self.get_serializer(receive(self.get_object(),request.user,request.data.get("items",[]),isinstance(self.get_object(),FinishedGoodsTransfer))).data)
+ @action(detail=True,methods=["post"])
+ def cancel(self,request,pk=None):return Response(self.get_serializer(cancel_transfer(self.get_object(),request.user,request.data.get("reason",""))).data)
 class MaterialTransferViewSet(BaseTransferViewSet):queryset=MaterialTransfer.objects.prefetch_related("items");serializer_class=MaterialTransferSerializer;module_name="material_transfers"
 class FinishedGoodsTransferViewSet(BaseTransferViewSet):queryset=FinishedGoodsTransfer.objects.prefetch_related("items");serializer_class=FinishedGoodsTransferSerializer
