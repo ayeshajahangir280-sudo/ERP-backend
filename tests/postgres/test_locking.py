@@ -56,7 +56,7 @@ class PostgreSQLLockingTests(TransactionTestCase):
         def invoke(operation):
             close_old_connections();barrier.wait()
             try:operation();return "ok"
-            except (ValidationError,Exception) as exc:return exc.__class__.__name__
+            except Exception as exc:return f"{exc.__class__.__name__}: {exc}"
             finally:close_old_connections()
         with ThreadPoolExecutor(max_workers=len(operations)) as pool:return list(pool.map(invoke,operations))
     def add_stock(self,quantity):
@@ -124,7 +124,7 @@ class PostgreSQLLockingTests(TransactionTestCase):
         invoice=self.invoice("PG-RET-I",5);invoice.status="POSTED";invoice.grand_total=50;invoice.outstanding_amount=50;invoice.save();line=invoice.items.get();line.line_total=50;line.unit_cost_snapshot=2;line.save()
         def make(number):
             ret=SalesReturn.objects.create(return_number=number,customer=self.customer,original_sales_invoice=invoice,return_date=timezone.localdate(),return_location=self.location,reason="race");SalesReturnItem.objects.create(sales_return=ret,original_sales_invoice_item=line,finished_product=self.product,sold_quantity=5,return_quantity=4,condition="SALEABLE",unit_price=10,credit_amount=40);return ret
-        a=make("PG-RET-A");b=make("PG-RET-B");results=self.concurrently(lambda:post_return(a.id,self.user),lambda:post_return(b.id,self.user));self.assertEqual(results.count("ok"),1);self.assertEqual(SalesReturn.objects.filter(status="POSTED").count(),1)
+        a=make("PG-RET-A");b=make("PG-RET-B");results=self.concurrently(lambda:post_return(a.id,self.user),lambda:post_return(b.id,self.user));self.assertEqual(results.count("ok"),1,results);self.assertEqual(SalesReturn.objects.filter(status="POSTED").count(),1)
     def test_production_and_transfer_compete_for_raw_material(self):
         post_movement(item=self.raw,location=self.production_location,quantity=5,direction="IN",transaction_number="PG-PROD-RM",transaction_type="PURCHASE",reference_type="Test",reference_id=uuid.uuid4(),unit=self.unit,user=self.user,incoming_unit_cost=3)
         production=ProductionBatch.objects.create(production_number="PG-PROD",finished_product=self.product,recipe=self.recipe,planned_quantity=1,production_location=self.production_location,finished_goods_destination=self.destination,batch_number="PG",manufacturing_date=timezone.localdate())
