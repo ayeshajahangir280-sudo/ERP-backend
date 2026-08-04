@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from apps.inventory.models import StockTransaction
 from apps.inventory.services import get_available_stock, get_average_cost
 from apps.inventory.posting import post_movement
-from .models import CustomerLedger, SalesInvoice,SalesReturn,SalesReturnItem
+from .models import CustomerLedger, SalesInvoice,SalesInvoiceItem,SalesReturn,SalesReturnItem
 from apps.locations.models import Location
 
 
