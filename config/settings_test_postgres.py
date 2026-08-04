@@ -1,16 +1,28 @@
-"""PostgreSQL-only test settings. Never points at DATABASE_URL."""
+"""PostgreSQL-only test settings. Never accepts a non-test database."""
+import os
 from urllib.parse import urlparse
-from .settings import *  # noqa: F403
+from django.core.exceptions import ImproperlyConfigured
 
-test_database_url=env("TEST_DATABASE_URL",default="")  # noqa: F405
+test_database_url = os.environ.get("TEST_DATABASE_URL")
+
 if not test_database_url:
-    raise ImproperlyConfigured("TEST_DATABASE_URL is required for PostgreSQL tests.")  # noqa: F405
-parsed=urlparse(test_database_url)
-database_name=(parsed.path or "").lstrip("/").lower()
-if parsed.scheme not in {"postgres","postgresql"}:
-    raise ImproperlyConfigured("PostgreSQL concurrency tests require a postgresql:// TEST_DATABASE_URL.")  # noqa: F405
-if "test" not in database_name or database_name in {"postgres","template0","template1"}:
-    raise ImproperlyConfigured("Refusing unsafe TEST_DATABASE_URL: database name must unmistakably contain 'test'.")  # noqa: F405
+    raise ImproperlyConfigured("TEST_DATABASE_URL is required.")
+
+parsed = urlparse(test_database_url)
+
+if parsed.scheme not in {"postgres", "postgresql"}:
+    raise ImproperlyConfigured("TEST_DATABASE_URL must use PostgreSQL.")
+
+database_name = parsed.path.lstrip("/")
+
+if "test" not in database_name.lower():
+    raise ImproperlyConfigured(
+        "TEST_DATABASE_URL must reference an explicitly named test database."
+    )
+
+os.environ["DATABASE_URL"] = test_database_url
+
+from .settings import *  # noqa: E402,F403
 
 DATABASES={"default":dj_database_url.parse(test_database_url,conn_max_age=0,conn_health_checks=True)}  # noqa: F405
 # Django normally prefixes test databases. Use an explicit, still unmistakably
