@@ -75,8 +75,10 @@ def cancel_sale(pk, user, reason):
 
 @transaction.atomic
 def post_return(pk,user):
- ret=SalesReturn.objects.select_for_update().select_related("original_sales_invoice").prefetch_related("items__original_sales_invoice_item").get(pk=pk)
- invoice=SalesInvoice.objects.select_for_update().get(pk=ret.original_sales_invoice_id)
+ invoice_id=SalesReturn.objects.only("original_sales_invoice_id").get(pk=pk).original_sales_invoice_id
+ invoice=SalesInvoice.objects.select_for_update().get(pk=invoice_id)
+ ret=SalesReturn.objects.select_for_update().prefetch_related("items__original_sales_invoice_item").get(pk=pk)
+ if ret.original_sales_invoice_id!=invoice.id:raise ValidationError("The original sales invoice changed; retry the return.")
  if ret.status not in {"DRAFT","SUBMITTED","APPROVED"}:raise ValidationError("Return has already been posted or cancelled.")
  if invoice.status in {"DRAFT","CANCELLED"}:raise ValidationError("Returns require an active posted sales invoice.")
  credit=Decimal("0")
@@ -99,12 +101,15 @@ def post_return(pk,user):
 @transaction.atomic
 def cancel_return(pk,user,reason):
  if not str(reason).strip():raise ValidationError("Cancellation reason is required.")
+ invoice_id=SalesReturn.objects.only("original_sales_invoice_id").get(pk=pk).original_sales_invoice_id
+ invoice=SalesInvoice.objects.select_for_update().get(pk=invoice_id)
  ret=SalesReturn.objects.select_for_update().get(pk=pk)
+ if ret.original_sales_invoice_id!=invoice.id:raise ValidationError("The original sales invoice changed; retry the cancellation.")
  if ret.status=="CANCELLED":return ret
  if ret.status!="POSTED":raise ValidationError("Only a posted return can be cancelled.")
  originals=StockTransaction.objects.select_for_update().filter(reference_type="SalesReturn",reference_id=ret.id,is_reversal=False).order_by("-created_at")
  for original in originals:
   post_movement(item=original.finished_product,location=original.destination_location,quantity=original.quantity_in,direction="OUT",transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_OUT",reference_type="SalesReturn",reference_id=ret.id,unit=original.unit,user=user,outgoing_unit_cost=original.unit_cost,remarks=f"Return cancellation: {reason}",reversal_of=original,is_reversal=True,audit_action="Cancel return",audit_module="sales_returns")
  CustomerLedger.objects.create(customer=ret.customer,transaction_date=timezone.localdate(),reference_type="SALES_RETURN_CANCELLATION",reference_id=ret.id,debit=ret.credit_total)
- invoice=SalesInvoice.objects.select_for_update().get(pk=ret.original_sales_invoice_id);invoice.outstanding_amount+=ret.credit_total;invoice.save(update_fields=["outstanding_amount"])
+ invoice.outstanding_amount+=ret.credit_total;invoice.save(update_fields=["outstanding_amount"])
  ret.status="CANCELLED";ret.cancelled_at=timezone.now();ret.cancelled_by=user;ret.cancellation_reason=reason;ret.save();return ret
