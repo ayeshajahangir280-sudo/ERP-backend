@@ -24,6 +24,13 @@ os.environ["DATABASE_URL"] = test_database_url
 
 from .settings import *  # noqa: E402,F403
 
+SECURE_SSL_REDIRECT = False
+SECURE_HSTS_SECONDS = 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+
 DATABASES={"default":dj_database_url.parse(test_database_url,conn_max_age=0,conn_health_checks=True)}  # noqa: F405
 # Django normally prefixes test databases. Use an explicit, still unmistakably
 # test-only name so concurrent test workers never touch the configured database.
