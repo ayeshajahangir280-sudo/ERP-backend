@@ -1,5 +1,6 @@
 from decimal import Decimal
-import tempfile
+from io import BytesIO
+from time import monotonic
 from django.test import TestCase,override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -9,8 +10,7 @@ from apps.locations.models import Location
 from apps.master_data.models import Customer,FinishedProduct,ItemCategory,Supplier,UnitOfMeasurement
 from apps.purchasing.models import PurchaseInvoice,SupplierLedger
 from apps.sales.models import CustomerLedger,SalesInvoice,SalesInvoiceItem
-from apps.reports.exports import process_export
-from apps.reports.models import ReportExportJob
+from openpyxl import load_workbook
 
 class ReportsDashboardTests(TestCase):
  def setUp(self):
@@ -43,8 +43,38 @@ class ReportsDashboardTests(TestCase):
   restricted=User.objects.create_user("restricted-report@test.local","password",full_name="Restricted",employee_code="REPORT-R",role="MANAGER",assigned_location=self.location,allowed_modules=["reports"])
   other=Location.objects.create(code="REP-O",name="Other",location_type="SHOP");self.client.force_authenticate(restricted)
   response=self.client.get(f"/api/reports/finished-goods-stock/?location={other.id}");self.assertEqual(response.status_code,400)
- @override_settings(MEDIA_ROOT=tempfile.gettempdir())
- def test_background_excel_export_is_owner_scoped_and_downloadable(self):
-  response=self.client.post("/api/report-exports/",{"report_name":"sales-register","format":"XLSX","filters":{}},format="json");self.assertEqual(response.status_code,202)
-  job=ReportExportJob.objects.get(pk=response.data["id"]);process_export(job.id);job.refresh_from_db();self.assertEqual(job.status,"COMPLETED");self.assertTrue(job.file)
-  download=self.client.get(f"/api/report-exports/{job.id}/download/");self.assertEqual(download.status_code,200);b"".join(download.streaming_content);job.file.delete(save=False)
+ def test_excel_export_is_synchronous_and_does_not_create_a_job(self):
+  response=self.client.post("/api/report-exports/",{"report_name":"sales-register","format":"XLSX","filters":{}},format="json")
+  self.assertEqual(response.status_code,200);self.assertIn(".xlsx",response["Content-Disposition"])
+  workbook=load_workbook(BytesIO(b"".join(response.streaming_content)),read_only=True);rows=list(workbook.active.values)
+  self.assertEqual(rows[0][1],"invoice_number");self.assertEqual(rows[1][1],"REP-SI")
+  from apps.reports.models import ReportExportJob
+  self.assertFalse(ReportExportJob.objects.exists())
+ def test_exports_neutralize_spreadsheet_formulas(self):
+  self.product.name="=HYPERLINK(\"https://invalid\")";self.product.save(update_fields=["name"])
+  response=self.client.post("/api/report-exports/",{"report_name":"sales-by-product","format":"XLSX","filters":{}},format="json")
+  workbook=load_workbook(BytesIO(b"".join(response.streaming_content)),read_only=True);values=list(workbook.active.values)
+  self.assertEqual(values[1][1],"'=HYPERLINK(\"https://invalid\")")
+  csv_response=self.client.get("/api/reports/sales-by-product/?export=csv");content=b"".join(csv_response.streaming_content).decode()
+  self.assertIn("'=HYPERLINK",content)
+ @override_settings(REPORT_XLSX_MAX_ROWS=0)
+ def test_excel_row_limit_directs_large_exports_to_streaming_csv(self):
+  response=self.client.post("/api/report-exports/",{"report_name":"sales-register","format":"XLSX","filters":{}},format="json")
+  self.assertEqual(response.status_code,400);self.assertIn("Use CSV",response.data["detail"])
+  csv_response=self.client.post("/api/report-exports/",{"report_name":"sales-register","format":"CSV","filters":{}},format="json")
+  self.assertEqual(csv_response.status_code,200);self.assertTrue(csv_response.streaming)
+ @override_settings(REPORT_EXPORT_SPOOL_MAX_BYTES=1)
+ def test_excel_export_spills_to_disk_and_completes_within_request_budget(self):
+  from apps.reports.exports import build_xlsx
+  started=monotonic();target=build_xlsx(({"name":f"row-{index}","value":index} for index in range(500)),max_rows=500)
+  try:
+   self.assertTrue(target._rolled);self.assertGreater(len(target.read()),0);self.assertLess(monotonic()-started,10)
+  finally:target.close()
+ def test_export_requires_authentication_and_enforces_location_scope(self):
+  self.client.force_authenticate(user=None)
+  self.assertEqual(self.client.post("/api/report-exports/",{"report_name":"sales-register","format":"XLSX"},format="json").status_code,401)
+  other=Location.objects.create(code="REP-X",name="Other export",location_type="SHOP")
+  restricted=User.objects.create_user("restricted-export@test.local","password",full_name="Restricted",employee_code="REPORT-X",role="MANAGER",assigned_location=self.location,allowed_modules=["reports"])
+  self.client.force_authenticate(restricted)
+  response=self.client.post("/api/report-exports/",{"report_name":"sales-register","format":"XLSX","filters":{"location":str(other.id)}},format="json")
+  self.assertEqual(response.status_code,400)

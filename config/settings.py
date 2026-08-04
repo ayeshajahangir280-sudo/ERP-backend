@@ -77,6 +77,8 @@ SECURE_HSTS_SECONDS=env.int("SECURE_HSTS_SECONDS",default=31536000 if not DEBUG 
 SECURE_HSTS_INCLUDE_SUBDOMAINS=env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS",default=False)
 SECURE_HSTS_PRELOAD=env.bool("SECURE_HSTS_PRELOAD",default=False)
 ALLOW_DELETE_ALL_DATA=env.bool("ALLOW_DELETE_ALL_DATA",default=False)
+REPORT_XLSX_MAX_ROWS=env.int("REPORT_XLSX_MAX_ROWS",default=10000)
+REPORT_EXPORT_SPOOL_MAX_BYTES=env.int("REPORT_EXPORT_SPOOL_MAX_BYTES",default=5*1024*1024)
 STORAGES={"default":{"BACKEND":"django.core.files.storage.FileSystemStorage"},"staticfiles":{"BACKEND":"whitenoise.storage.CompressedManifestStaticFilesStorage"}}
 REST_FRAMEWORK={"DEFAULT_AUTHENTICATION_CLASSES":["rest_framework_simplejwt.authentication.JWTAuthentication"],"DEFAULT_PERMISSION_CLASSES":["rest_framework.permissions.IsAuthenticated"],"DEFAULT_FILTER_BACKENDS":["django_filters.rest_framework.DjangoFilterBackend","rest_framework.filters.SearchFilter","rest_framework.filters.OrderingFilter"],"DEFAULT_PAGINATION_CLASS":"common.pagination.StandardPagination","PAGE_SIZE":25,"DEFAULT_SCHEMA_CLASS":"drf_spectacular.openapi.AutoSchema","EXCEPTION_HANDLER":"common.exceptions.api_exception_handler"}
 SIMPLE_JWT={"ACCESS_TOKEN_LIFETIME":timedelta(minutes=env.int("ACCESS_TOKEN_LIFETIME_MINUTES",default=60)),"REFRESH_TOKEN_LIFETIME":timedelta(days=env.int("REFRESH_TOKEN_LIFETIME_DAYS",default=7)),"ROTATE_REFRESH_TOKENS":True,"BLACKLIST_AFTER_ROTATION":True}

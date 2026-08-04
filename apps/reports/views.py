@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.db.models import Count,F,Q,Sum,Value
 from django.db.models.functions import Coalesce,TruncDay,TruncMonth
+from django.conf import settings
 from django.http import FileResponse,StreamingHttpResponse
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -12,6 +13,7 @@ from drf_spectacular.utils import OpenApiTypes,extend_schema,inline_serializer
 from rest_framework import serializers
 
 from apps.accounts.permissions import HasModulePermission
+from apps.audit.models import AuditLog
 from apps.inventory.models import InventoryBalance,StockAdjustment,StockTransaction,WastageDocument
 from apps.inventory.posting import reconciliation_discrepancies
 from apps.master_data.models import Customer,RawMaterial,Supplier
@@ -21,7 +23,6 @@ from apps.purchasing.models import PurchaseInvoice,PurchaseInvoiceItem,SupplierL
 from apps.sales.models import CustomerLedger,SalesInvoice,SalesInvoiceItem,SalesReturn
 from common.pagination import StandardPagination
 from .models import ReportExportJob
-from datetime import timedelta
 
 
 def _date_filters(request,field):
@@ -38,6 +39,11 @@ def _location_id(request):
         return str(user.assigned_location_id)
     return requested
 
+def _materialize(request,rows):
+    if getattr(request,"streaming_export",False):
+        return rows.iterator(chunk_size=1000) if hasattr(rows,"iterator") else rows
+    return list(rows)
+
 class Echo:
     def write(self,value):return value
 
@@ -46,14 +52,16 @@ class ReportView(APIView):
     def rows(self,request):raise NotImplementedError
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self,request):
+        if request.query_params.get("export")=="csv":request.streaming_export=True
         rows=self.rows(request)
         if request.query_params.get("export")=="csv":
             iterator=iter(rows);first=next(iterator,None);columns=list(first.keys()) if first else []
             writer=csv.DictWriter(Echo(),fieldnames=columns)
             def stream():
                 yield writer.writeheader()
-                if first:yield writer.writerow(first)
-                for row in iterator:yield writer.writerow(row)
+                from .exports import safe_cell
+                if first:yield writer.writerow({key:safe_cell(value) for key,value in first.items()})
+                for row in iterator:yield writer.writerow({key:safe_cell(value) for key,value in row.items()})
             response=StreamingHttpResponse(stream(),content_type="text/csv");response["Content-Disposition"]=f'attachment; filename="{self.report_name}.csv"';return response
         paginator=StandardPagination();page=paginator.paginate_queryset(rows,request,view=self)
         return paginator.get_paginated_response(page)
@@ -66,7 +74,7 @@ class InventoryReport(ReportView):
         if self.report_name=="raw-material-stock":qs=qs.filter(raw_material__isnull=False)
         elif self.report_name=="finished-goods-stock":qs=qs.filter(finished_product__isnull=False)
         elif self.report_name=="production-stock":qs=qs.filter(location__location_type="PRODUCTION")
-        return [{"item_type":"RM" if row.raw_material_id else "FG","item_id":row.raw_material_id or row.finished_product_id,"item":(row.raw_material or row.finished_product).name,"location_id":row.location_id,"location":row.location.name,"quantity":row.current_quantity,"average_cost":row.average_unit_cost,"inventory_value":row.inventory_value,"revision":row.revision} for row in qs.iterator()]
+        return _materialize(request,({"item_type":"RM" if row.raw_material_id else "FG","item_id":row.raw_material_id or row.finished_product_id,"item":(row.raw_material or row.finished_product).name,"location_id":row.location_id,"location":row.location.name,"quantity":row.current_quantity,"average_cost":row.average_unit_cost,"inventory_value":row.inventory_value,"revision":row.revision} for row in qs.iterator()))
 
 class StockLedgerReport(ReportView):
     report_name="stock-ledger"
@@ -76,7 +84,7 @@ class StockLedgerReport(ReportView):
         if location:qs=qs.filter(Q(source_location_id=location)|Q(destination_location_id=location))
         for field in ("transaction_type","raw_material","finished_product"):
             if request.query_params.get(field):qs=qs.filter(**{field:request.query_params[field]})
-        return [{"number":x.transaction_number,"date":x.transaction_date,"type":x.transaction_type,"reference_type":x.reference_type,"reference_id":x.reference_id,"item_type":"RM" if x.raw_material_id else "FG","item_id":x.raw_material_id or x.finished_product_id,"item":(x.raw_material or x.finished_product).name,"source":x.source_location.name if x.source_location else "","destination":x.destination_location.name if x.destination_location else "","quantity_in":x.quantity_in,"quantity_out":x.quantity_out,"unit":x.unit.code,"unit_cost":x.unit_cost,"total_value":x.total_value,"is_reversal":x.is_reversal} for x in qs.iterator()]
+        return _materialize(request,({"number":x.transaction_number,"date":x.transaction_date,"type":x.transaction_type,"reference_type":x.reference_type,"reference_id":x.reference_id,"item_type":"RM" if x.raw_material_id else "FG","item_id":x.raw_material_id or x.finished_product_id,"item":(x.raw_material or x.finished_product).name,"source":x.source_location.name if x.source_location else "","destination":x.destination_location.name if x.destination_location else "","quantity_in":x.quantity_in,"quantity_out":x.quantity_out,"unit":x.unit.code,"unit_cost":x.unit_cost,"total_value":x.total_value,"is_reversal":x.is_reversal} for x in qs.iterator()))
 
 class DocumentReport(ReportView):
     def rows(self,request):
@@ -86,36 +94,36 @@ class DocumentReport(ReportView):
         location=_location_id(request)
         if location:qs=qs.filter(location_id=location)
         if request.query_params.get("status"):qs=qs.filter(status=request.query_params["status"])
-        return [{"number":getattr(x,"document_number",None) or x.adjustment_number,"date":getattr(x,date_field),"item_type":"RM" if x.raw_material_id else "FG","item_id":x.raw_material_id or x.finished_product_id,"item":(x.raw_material or x.finished_product).name,"location":x.location.name,"quantity":x.quantity,"direction":getattr(x,"direction","OUT"),"unit":x.unit.code,"unit_cost":x.unit_cost,"total_value":x.total_value,"reason":x.reason,"status":x.status} for x in qs.iterator()]
+        return _materialize(request,({"number":getattr(x,"document_number",None) or x.adjustment_number,"date":getattr(x,date_field),"item_type":"RM" if x.raw_material_id else "FG","item_id":x.raw_material_id or x.finished_product_id,"item":(x.raw_material or x.finished_product).name,"location":x.location.name,"quantity":x.quantity,"direction":getattr(x,"direction","OUT"),"unit":x.unit.code,"unit_cost":x.unit_cost,"total_value":x.total_value,"reason":x.reason,"status":x.status} for x in qs.iterator()))
 
 class PurchaseReport(ReportView):
     def rows(self,request):
         if self.report_name=="supplier-ledger":
             qs=SupplierLedger.objects.select_related("supplier").filter(**_date_filters(request,"transaction_date")).order_by("-transaction_date","-created_at")
             if request.query_params.get("supplier"):qs=qs.filter(supplier_id=request.query_params["supplier"])
-            return list(qs.values("transaction_date","supplier_id","supplier__name","reference_type","reference_id","debit","credit"))
+            return _materialize(request,qs.values("transaction_date","supplier_id","supplier__name","reference_type","reference_id","debit","credit"))
         if self.report_name=="supplier-outstanding":
             qs=Supplier.objects.annotate(invoice_total=Coalesce(Sum("purchaseinvoice__grand_total",filter=Q(purchaseinvoice__status__in=["POSTED","PARTIALLY_PAID","PAID","OVERDUE"])),Value(Decimal("0"))),payment_total=Coalesce(Sum("supplierpayment__amount",filter=Q(supplierpayment__status="POSTED")),Value(Decimal("0"))))
-            return [{"supplier_id":x.id,"supplier":x.name,"opening_balance":x.opening_balance,"invoice_total":x.invoice_total,"payment_total":x.payment_total,"outstanding":x.opening_balance+x.invoice_total-x.payment_total} for x in qs]
+            return _materialize(request,({"supplier_id":x.id,"supplier":x.name,"opening_balance":x.opening_balance,"invoice_total":x.invoice_total,"payment_total":x.payment_total,"outstanding":x.opening_balance+x.invoice_total-x.payment_total} for x in qs.iterator()))
         if self.report_name=="purchases-by-item":
             qs=PurchaseInvoiceItem.objects.filter(purchase_invoice__status__in=["POSTED","PARTIALLY_PAID","PAID","OVERDUE"],**_date_filters(request,"purchase_invoice__invoice_date"))
             if request.query_params.get("raw_material"):qs=qs.filter(raw_material_id=request.query_params["raw_material"])
-            return list(qs.values("raw_material_id","raw_material__name").annotate(quantity=Sum("quantity"),total=Sum("line_total")).order_by("raw_material__name"))
+            return _materialize(request,qs.values("raw_material_id","raw_material__name").annotate(quantity=Sum("quantity"),total=Sum("line_total")).order_by("raw_material__name"))
         qs=PurchaseInvoice.objects.select_related("supplier","warehouse").filter(**_date_filters(request,"invoice_date")).order_by("-invoice_date")
         location=_location_id(request)
         if location:qs=qs.filter(warehouse_id=location)
         if request.query_params.get("supplier"):qs=qs.filter(supplier_id=request.query_params["supplier"])
-        return list(qs.values("id","invoice_number","invoice_date","due_date","supplier_id","supplier__name","warehouse_id","warehouse__name","status","grand_total","paid_amount","outstanding_amount"))
+        return _materialize(request,qs.values("id","invoice_number","invoice_date","due_date","supplier_id","supplier__name","warehouse_id","warehouse__name","status","grand_total","paid_amount","outstanding_amount"))
 
 class ProductionReport(ReportView):
     def rows(self,request):
         if self.report_name=="material-consumption":
             qs=ProductionConsumption.objects.select_related("production_batch","raw_material").filter(**_date_filters(request,"production_batch__manufacturing_date"))
-            return list(qs.values("production_batch_id","production_batch__production_number","raw_material_id","raw_material__name","standard_required_quantity","actual_consumed_quantity","variance_quantity","unit_cost","total_cost"))
+            return _materialize(request,qs.values("production_batch_id","production_batch__production_number","raw_material_id","raw_material__name","standard_required_quantity","actual_consumed_quantity","variance_quantity","unit_cost","total_cost"))
         qs=ProductionBatch.objects.select_related("finished_product","production_location","finished_goods_destination").filter(**_date_filters(request,"manufacturing_date")).order_by("-manufacturing_date")
         location=_location_id(request)
         if location:qs=qs.filter(Q(production_location_id=location)|Q(finished_goods_destination_id=location))
-        return list(qs.values("id","production_number","manufacturing_date","finished_product_id","finished_product__name","production_location_id","finished_goods_destination_id","status","planned_quantity","actual_produced_quantity","material_cost","additional_cost","total_production_cost","cost_per_unit"))
+        return _materialize(request,qs.values("id","production_number","manufacturing_date","finished_product_id","finished_product__name","production_location_id","finished_goods_destination_id","status","planned_quantity","actual_produced_quantity","material_cost","additional_cost","total_production_cost","cost_per_unit"))
 
 class SalesReport(ReportView):
     def rows(self,request):
@@ -123,10 +131,10 @@ class SalesReport(ReportView):
         if self.report_name=="customer-ledger":
             qs=CustomerLedger.objects.select_related("customer").filter(**_date_filters(request,"transaction_date")).order_by("-transaction_date","-created_at")
             if request.query_params.get("customer"):qs=qs.filter(customer_id=request.query_params["customer"])
-            return list(qs.values("transaction_date","customer_id","customer__name","reference_type","reference_id","debit","credit"))
+            return _materialize(request,qs.values("transaction_date","customer_id","customer__name","reference_type","reference_id","debit","credit"))
         if self.report_name=="customer-outstanding":
             qs=Customer.objects.annotate(invoice_total=Coalesce(Sum("salesinvoice__grand_total",filter=Q(salesinvoice__status__in=active)),Value(Decimal("0"))),payment_total=Coalesce(Sum("customerpayment__amount",filter=Q(customerpayment__status="POSTED")),Value(Decimal("0"))),return_total=Coalesce(Sum("salesreturn__credit_total",filter=Q(salesreturn__status="POSTED")),Value(Decimal("0"))))
-            return [{"customer_id":x.id,"customer":x.name,"opening_balance":x.opening_balance,"invoice_total":x.invoice_total,"payment_total":x.payment_total,"return_total":x.return_total,"outstanding":x.opening_balance+x.invoice_total-x.payment_total-x.return_total} for x in qs]
+            return _materialize(request,({"customer_id":x.id,"customer":x.name,"opening_balance":x.opening_balance,"invoice_total":x.invoice_total,"payment_total":x.payment_total,"return_total":x.return_total,"outstanding":x.opening_balance+x.invoice_total-x.payment_total-x.return_total} for x in qs.iterator()))
         if self.report_name in {"sales-by-product","sales-by-customer","sales-by-branch","daily-sales","monthly-sales"}:
             qs=SalesInvoiceItem.objects.filter(sales_invoice__status__in=active,**_date_filters(request,"sales_invoice__invoice_date"))
             location=_location_id(request)
@@ -134,25 +142,25 @@ class SalesReport(ReportView):
             if request.query_params.get("finished_product"):qs=qs.filter(finished_product_id=request.query_params["finished_product"])
             if request.query_params.get("customer"):qs=qs.filter(sales_invoice__customer_id=request.query_params["customer"])
             dimensions={"sales-by-product":["finished_product_id","finished_product__name"],"sales-by-customer":["sales_invoice__customer_id","sales_invoice__customer__name"],"sales-by-branch":["sales_invoice__sales_location_id","sales_invoice__sales_location__name"]}
-            if self.report_name=="daily-sales":return list(qs.annotate(period=TruncDay("sales_invoice__invoice_date")).values("period").annotate(quantity=Sum("quantity"),sales=Sum("line_total"),cost=Sum("cost_total"),gross_profit=Sum("gross_profit")).order_by("period"))
-            if self.report_name=="monthly-sales":return list(qs.annotate(period=TruncMonth("sales_invoice__invoice_date")).values("period").annotate(quantity=Sum("quantity"),sales=Sum("line_total"),cost=Sum("cost_total"),gross_profit=Sum("gross_profit")).order_by("period"))
-            return list(qs.values(*dimensions[self.report_name]).annotate(quantity=Sum("quantity"),sales=Sum("line_total"),cost=Sum("cost_total"),gross_profit=Sum("gross_profit")).order_by("-sales"))
+            if self.report_name=="daily-sales":return _materialize(request,qs.annotate(period=TruncDay("sales_invoice__invoice_date")).values("period").annotate(quantity=Sum("quantity"),sales=Sum("line_total"),cost=Sum("cost_total"),gross_profit=Sum("gross_profit")).order_by("period"))
+            if self.report_name=="monthly-sales":return _materialize(request,qs.annotate(period=TruncMonth("sales_invoice__invoice_date")).values("period").annotate(quantity=Sum("quantity"),sales=Sum("line_total"),cost=Sum("cost_total"),gross_profit=Sum("gross_profit")).order_by("period"))
+            return _materialize(request,qs.values(*dimensions[self.report_name]).annotate(quantity=Sum("quantity"),sales=Sum("line_total"),cost=Sum("cost_total"),gross_profit=Sum("gross_profit")).order_by("-sales"))
         qs=SalesInvoice.objects.select_related("customer","sales_location").filter(**_date_filters(request,"invoice_date")).order_by("-invoice_date")
         location=_location_id(request)
         if location:qs=qs.filter(sales_location_id=location)
         if request.query_params.get("customer"):qs=qs.filter(customer_id=request.query_params["customer"])
-        return list(qs.values("id","invoice_number","invoice_date","due_date","customer_id","customer__name","sales_location_id","sales_location__name","status","grand_total","paid_amount","outstanding_amount","cost_of_goods_sold","gross_profit","gross_margin_percentage"))
+        return _materialize(request,qs.values("id","invoice_number","invoice_date","due_date","customer_id","customer__name","sales_location_id","sales_location__name","status","grand_total","paid_amount","outstanding_amount","cost_of_goods_sold","gross_profit","gross_margin_percentage"))
 
 class ReturnsPaymentsReport(ReportView):
     def rows(self,request):
         if self.report_name in {"sales-returns","return-analysis","customer-return-history"}:
             qs=SalesReturn.objects.select_related("customer","original_sales_invoice","return_location").filter(**_date_filters(request,"return_date")).order_by("-return_date")
             if request.query_params.get("customer"):qs=qs.filter(customer_id=request.query_params["customer"])
-            return list(qs.values("id","return_number","return_date","customer_id","customer__name","original_sales_invoice_id","return_location_id","reason","status","credit_total"))
+            return _materialize(request,qs.values("id","return_number","return_date","customer_id","customer__name","original_sales_invoice_id","return_location_id","reason","status","credit_total"))
         model=CustomerPayment if self.report_name=="customer-payments" else SupplierPayment
         party="customer" if model is CustomerPayment else "supplier"
         qs=model.objects.select_related(party,"payment_method").prefetch_related("allocations").filter(**_date_filters(request,"payment_date")).order_by("-payment_date")
-        return [{"id":x.id,"number":x.payment_number,"date":x.payment_date,"party_id":getattr(x,f"{party}_id"),"party":getattr(x,party).name,"method":x.payment_method.name,"amount":x.amount,"allocated":sum((a.amount for a in x.allocations.all()),Decimal("0")),"status":x.status,"reference":x.reference_number} for x in qs]
+        return _materialize(request,({"id":x.id,"number":x.payment_number,"date":x.payment_date,"party_id":getattr(x,f"{party}_id"),"party":getattr(x,party).name,"method":x.payment_method.name,"amount":x.amount,"allocated":sum((a.amount for a in x.allocations.all()),Decimal("0")),"status":x.status,"reference":x.reference_number} for x in qs.iterator()))
 
 class ReconciliationReport(ReportView):
     report_name="reconciliation"
@@ -182,7 +190,7 @@ class ReportExportJobView(APIView):
             job=qs.get(pk=pk);return Response(self.serialize(job))
         return Response([self.serialize(job) for job in qs[:100]])
     def post(self,request,pk=None):
-        from .exports import REPORTS
+        from .exports import REPORTS,build_xlsx,safe_filename
         if pk:
             job=ReportExportJob.objects.filter(requested_by=request.user).get(pk=pk)
             if job.status!="FAILED":return Response({"detail":"Only failed exports can be retried."},status=409)
@@ -191,14 +199,31 @@ class ReportExportJobView(APIView):
         if report not in REPORTS:return Response({"detail":"Unsupported report."},status=400)
         if output not in {"CSV","XLSX"}:return Response({"detail":"Format must be CSV or XLSX."},status=400)
         filters={str(k):str(v) for k,v in dict(request.data.get("filters") or {}).items() if v not in (None,"")}
-        requested=filters.get("location");_location_id(SimpleRequest(request.user,filters))
-        job=ReportExportJob.objects.create(requested_by=request.user,report_name=report,output_format=output,filters=filters,expires_at=timezone.now()+timedelta(days=2))
-        return Response(self.serialize(job),status=202)
+        _location_id(SimpleRequest(request.user,filters))
+        report_view=REPORTS[report](report_name=report)
+        export_request=SimpleRequest(request.user,filters)
+        if output=="CSV":
+            rows=iter(report_view.rows(export_request));first=next(rows,None);columns=list(first.keys()) if first else []
+            writer=csv.DictWriter(Echo(),fieldnames=columns)
+            from .exports import safe_cell
+            def stream():
+                yield writer.writeheader()
+                if first:yield writer.writerow({key:safe_cell(value) for key,value in first.items()})
+                for row in rows:yield writer.writerow({key:safe_cell(value) for key,value in row.items()})
+            response=StreamingHttpResponse(stream(),content_type="text/csv")
+            response["Content-Disposition"]=f'attachment; filename="{safe_filename(report,"csv")}"'
+        else:
+            try:target=build_xlsx(report_view.rows(export_request),settings.REPORT_XLSX_MAX_ROWS)
+            except OverflowError:
+                return Response({"detail":f"Excel exports are limited to {settings.REPORT_XLSX_MAX_ROWS:,} rows. Use CSV for larger exports."},status=400)
+            response=FileResponse(target,as_attachment=True,filename=safe_filename(report,"xlsx"),content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        AuditLog.objects.create(user=request.user,action="Export",module="reports",record_type="Report",record_number=report,description=f"Exported {report} as {output}",new_values={"filters":filters,"format":output})
+        return response
     @staticmethod
     def serialize(job):return {"id":job.id,"report_name":job.report_name,"format":job.output_format,"filters":job.filters,"status":job.status,"attempts":job.attempts,"error":job.error,"created_at":job.created_at,"completed_at":job.completed_at,"expires_at":job.expires_at,"download_available":bool(job.file and job.status=="COMPLETED")}
 
 class SimpleRequest:
-    def __init__(self,user,query_params):self.user=user;self.query_params=query_params
+    def __init__(self,user,query_params):self.user=user;self.query_params=query_params;self.streaming_export=True
 
 class ReportExportDownloadView(APIView):
     permission_classes=[HasModulePermission];module_name="reports"
@@ -212,7 +237,7 @@ class ReportExportDownloadView(APIView):
 class ReportExportCollectionView(ReportExportJobView):
     @extend_schema(operation_id="report_export_list",responses=OpenApiTypes.OBJECT)
     def get(self,request):return super().get(request)
-    @extend_schema(operation_id="report_export_create",request=inline_serializer("ReportExportCreateRequest",fields={"report_name":serializers.CharField(),"format":serializers.ChoiceField(choices=("CSV","XLSX")),"filters":serializers.JSONField(required=False)}),responses={202:OpenApiTypes.OBJECT})
+    @extend_schema(operation_id="report_export_create",request=inline_serializer("ReportExportCreateRequest",fields={"report_name":serializers.CharField(),"format":serializers.ChoiceField(choices=("CSV","XLSX")),"filters":serializers.JSONField(required=False)}),responses={(200,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"):OpenApiTypes.BINARY,(200,"text/csv"):OpenApiTypes.BINARY})
     def post(self,request):return super().post(request)
 
 class ReportExportDetailView(ReportExportJobView):

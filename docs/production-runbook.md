@@ -31,15 +31,13 @@ The internal Dokploy health check may call `http://127.0.0.1:8000/api/health/`. 
 ## Deployment
 
 1. Create and verify an off-server backup.
-2. Run `python manage.py audit_payment_migration_data --fail-on-error`.
+2. Run `python manage.py audit_payment_migration_data` and require zero blocking issues.
 3. Run `python manage.py check --deploy` and `python manage.py makemigrations --check --dry-run`.
-4. Put application workers into drain mode, then run `python manage.py migrate --noinput` once.
-5. Start web and worker processes, check `/api/health/`, then perform the staging QA checklist.
+4. Drain application traffic, then run `python manage.py migrate --noinput` once.
+5. Start the web process, check `/api/health/`, then perform the staging QA checklist.
 6. Run inventory and financial fingerprints/reconciliation and compare dashboard totals with reports.
 
-Use Gunicorn with bounded request timeouts and multiple workers. Run the export/idempotency cleanup commands from a scheduled worker. Put a connection pool such as PgBouncer in transaction mode between the application and PostgreSQL when connection concurrency requires it.
-
-Run a separate Dokploy worker service from the same image with `python manage.py process_report_exports`. Schedule `python manage.py cleanup_report_exports` and `python manage.py cleanup_idempotency_records` daily. Export files expire after 48 hours. Monitor failed jobs and retry them through `POST /api/report-exports/<id>/`.
+Use Gunicorn with bounded request timeouts and multiple workers. Gunicorn is the only continuously running application process required. Excel exports are generated synchronously and are limited by `REPORT_XLSX_MAX_ROWS` (default 10,000); users must select streaming CSV for larger exports. `REPORT_EXPORT_SPOOL_MAX_BYTES` (default 5 MiB) bounds in-memory XLSX buffering before it spills to a temporary file. Existing historical export-job records and completed downloads remain available until their recorded expiry. The legacy export processor is retained only for historical pending records and is not required for new exports. Schedule `python manage.py cleanup_report_exports` and `python manage.py cleanup_idempotency_records` as optional daily one-shot tasks. Put a connection pool such as PgBouncer in transaction mode between the application and PostgreSQL when connection concurrency requires it.
 
 `erp-erp-mscnom` is resolvable only between services on the Dokploy internal network. A Dokploy application database URL may use `postgresql://USER:PASSWORD@erp-erp-mscnom:5432/DATABASE`; developer machines and GitHub Actions must not use that hostname. CI uses its own PostgreSQL 17 service on `127.0.0.1` with clearly test-only database names. Staging must use a separate database and credentials from production.
 
