@@ -31,7 +31,7 @@ SECURE_HSTS_PRELOAD = False
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
 
-DATABASES={"default":dj_database_url.parse(test_database_url,conn_max_age=0,conn_health_checks=True)}  # noqa: F405
+DATABASES={"default":dj_database_url.parse(test_database_url,conn_max_age=None,conn_health_checks=True)}  # noqa: F405
 # Django normally prefixes test databases. Use an explicit, still unmistakably
 # test-only name so concurrent test workers never touch the configured database.
 DATABASES["default"]["TEST"]={"NAME":f"test_{database_name}" if not database_name.startswith("test_") else database_name}
