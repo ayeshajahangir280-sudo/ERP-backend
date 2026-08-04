@@ -76,6 +76,17 @@ python manage.py check
 python manage.py test
 ```
 
+Before applying the normalized payment constraints in a populated environment:
+
+1. Create and verify a PostgreSQL backup.
+2. Run `python manage.py audit_payment_migration_data` (or `--format json`/`csv`).
+3. Correct every blocking record through an approved, audited process; the command never modifies data.
+4. Run the preflight again and require a zero exit code.
+5. Apply migrations only after the audit is clean.
+
+PostgreSQL CI uses a disposable `bakeryflow_test` service and the fail-closed
+`config.settings_test_postgres` settings. See `docs/POSTGRESQL_TESTING.md`.
+
 ## Authentication and access
 
 - `POST /api/auth/login/` with `email` and `password`
