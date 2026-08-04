@@ -36,7 +36,7 @@ def transition(document_class, pk, user, target):
 
 @transaction.atomic
 def post_stock_document(document_class, pk, user):
-    document=document_class.objects.select_for_update().select_related("raw_material","finished_product","location","unit").get(pk=pk)
+    document=document_class.objects.select_for_update(of=("self",)).select_related("raw_material","finished_product","location","unit").get(pk=pk)
     if document.status=="POSTED":return document
     if document.status!="APPROVED":raise ValidationError("Only approved documents can be posted.")
     item=document.raw_material or document.finished_product
@@ -58,7 +58,7 @@ def post_stock_document(document_class, pk, user):
 
 @transaction.atomic
 def cancel_stock_document(document_class, pk, user, reason):
-    document=document_class.objects.select_for_update().select_related("raw_material","finished_product","location","unit").get(pk=pk)
+    document=document_class.objects.select_for_update(of=("self",)).select_related("raw_material","finished_product","location","unit").get(pk=pk)
     if document.status=="CANCELLED":return document
     if document.status in {"DRAFT","SUBMITTED","APPROVED"}:
         previous=document.status;document.status="CANCELLED";document.cancelled_by=user;document.cancelled_at=timezone.now();document.cancellation_reason=reason;document.save();_audit(document,user,"Cancel",previous,"CANCELLED");return document

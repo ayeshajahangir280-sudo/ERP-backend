@@ -29,8 +29,8 @@ jobs:
       - run: python manage.py migrate --noinput && python manage.py seed_performance_data --products 10 --materials 10 --customers 20 --suppliers 10 --locations 3 --sales 100 --purchases 50 --ledger-entries 500
       - run: python manage.py database_fingerprint --output before.json
       - run: python manage.py verify_reconciliation
-      - run: pg_dump -Fc -h 127.0.0.1 -U postgres -d bakeryflow_test -f backup.dump
-      - run: createdb -h 127.0.0.1 -U postgres bakeryflow_restored_test && pg_restore -h 127.0.0.1 -U postgres -d bakeryflow_restored_test --no-owner backup.dump
+      - run: docker run --rm --network host -e PGPASSWORD=postgres -v "$PWD:/work" postgres:17-alpine pg_dump -Fc -h 127.0.0.1 -U postgres -d bakeryflow_test -f /work/backup.dump
+      - run: docker run --rm --network host -e PGPASSWORD=postgres -v "$PWD:/work" postgres:17-alpine sh -c "createdb -h 127.0.0.1 -U postgres bakeryflow_restored_test && pg_restore -h 127.0.0.1 -U postgres -d bakeryflow_restored_test --no-owner /work/backup.dump"
       - run: TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored_test DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored_test python manage.py check
       - run: TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored_test DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored_test python manage.py migrate --check
       - run: TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored_test DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored_test python manage.py database_fingerprint --output after.json
