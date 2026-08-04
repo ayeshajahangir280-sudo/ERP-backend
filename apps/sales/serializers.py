@@ -9,6 +9,12 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
   items=data.pop("items",[]);obj=SalesInvoice.objects.create(**data)
   for i in items:SalesInvoiceItem.objects.create(sales_invoice=obj,**i)
   return obj
+ def update(self,instance,data):
+  items=data.pop("items",None);obj=super().update(instance,data)
+  if items is not None:
+   obj.items.all().delete()
+   for i in items:SalesInvoiceItem.objects.create(sales_invoice=obj,**i)
+  return obj
 class SalesReturnItemSerializer(serializers.ModelSerializer):
  class Meta:model=SalesReturnItem;exclude=("sales_return",);read_only_fields=("finished_product","batch","sold_quantity","previously_returned_quantity","unit_price","credit_amount")
 class SalesReturnSerializer(serializers.ModelSerializer):

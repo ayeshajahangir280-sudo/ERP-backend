@@ -9,3 +9,10 @@ class PurchaseSerializer(serializers.ModelSerializer):
   items=data.pop("items",[]); inv=PurchaseInvoice.objects.create(**data)
   for x in items: PurchaseInvoiceItem.objects.create(purchase_invoice=inv,**x)
   return inv
+ def update(self,instance,data):
+  items=data.pop("items",None)
+  instance=super().update(instance,data)
+  if items is not None:
+   instance.items.all().delete()
+   for x in items: PurchaseInvoiceItem.objects.create(purchase_invoice=instance,**x)
+  return instance

@@ -19,3 +19,13 @@ class RecipeSerializer(serializers.ModelSerializer):
   obj=Recipe.objects.create(**data)
   for i in items:RecipeItem.objects.create(recipe=obj,**i)
   return obj
+ @transaction.atomic
+ def update(self,instance,data):
+  items=data.pop("items",None)
+  if data.get("is_default") and data.get("status",instance.status) == "ACTIVE":
+   Recipe.objects.filter(finished_product=data.get("finished_product",instance.finished_product),is_default=True,status="ACTIVE").exclude(pk=instance.pk).update(is_default=False)
+  obj=super().update(instance,data)
+  if items is not None:
+   obj.items.all().delete()
+   for i in items:RecipeItem.objects.create(recipe=obj,**i)
+  return obj

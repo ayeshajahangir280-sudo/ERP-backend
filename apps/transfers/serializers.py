@@ -14,6 +14,13 @@ class MaterialTransferSerializer(serializers.ModelSerializer):
   obj=MaterialTransfer.objects.create(requested_by=self.context["request"].user,**data)
   for item in items:MaterialTransferItem.objects.create(transfer=obj,**item)
   return obj
+ @transaction.atomic
+ def update(self,instance,data):
+  items=data.pop("items",None);obj=super().update(instance,data)
+  if items is not None:
+   obj.items.all().delete()
+   for item in items:MaterialTransferItem.objects.create(transfer=obj,**item)
+  return obj
 class FinishedGoodsTransferItemSerializer(serializers.ModelSerializer):
  class Meta:model=FinishedGoodsTransferItem;exclude=("transfer",);read_only_fields=("dispatched_quantity","received_quantity","damaged_quantity");extra_kwargs={"batch":{"required":False,"allow_blank":True}}
 class FinishedGoodsTransferSerializer(serializers.ModelSerializer):
@@ -26,4 +33,12 @@ class FinishedGoodsTransferSerializer(serializers.ModelSerializer):
   obj=FinishedGoodsTransfer.objects.create(**data)
   for item in items:
    item.pop("batch",None);FinishedGoodsTransferItem.objects.create(transfer=obj,batch="",**item)
+  return obj
+ @transaction.atomic
+ def update(self,instance,data):
+  items=data.pop("items",None);obj=super().update(instance,data)
+  if items is not None:
+   obj.items.all().delete()
+   for item in items:
+    item.pop("batch",None);FinishedGoodsTransferItem.objects.create(transfer=obj,batch="",**item)
   return obj
