@@ -3,6 +3,7 @@ from django.test import TestCase
 
 from apps.accounts.models import User
 from apps.locations.models import Location
+from apps.system_state.models import ERPState
 
 
 class ERPStateTests(TestCase):
@@ -19,7 +20,7 @@ class ERPStateTests(TestCase):
 
     def test_state_round_trip(self):
         self.assertEqual(self.client.get("/api/erp-state/").json(), {"data": None, "revision": 0})
-        database = {"purchaseInvoices": [{"id": "PI-1"}], "counters": {"PI": 1}}
+        database = {"uiPreferences": {"dense": True}}
         response = self.client.put("/api/erp-state/", {"data": database, "revision": 0}, format="json")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.client.get("/api/erp-state/").json()["data"], database)
@@ -29,11 +30,18 @@ class ERPStateTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_stale_state_write_is_rejected(self):
-        first=self.client.put("/api/erp-state/",{"data":{"counters":{}},"revision":0},format="json")
+        first=self.client.put("/api/erp-state/",{"data":{"uiPreferences":{}} ,"revision":0},format="json")
         self.assertEqual(first.status_code,200)
-        stale=self.client.put("/api/erp-state/",{"data":{"counters":{"PI":99}},"revision":0},format="json")
+        stale=self.client.put("/api/erp-state/",{"data":{"uiPreferences":{"dense":True}},"revision":0},format="json")
         self.assertEqual(stale.status_code,409)
-        self.assertEqual(self.client.get("/api/erp-state/").json()["data"],{"counters":{}})
+        self.assertEqual(self.client.get("/api/erp-state/").json()["data"],{"uiPreferences":{}})
+
+    def test_transactional_collections_are_rejected(self):
+        payload={"purchaseInvoices":[{"id":"fake"}],"stockLedger":[{"quantity":999}],"customerPayments":[{"amount":999}]}
+        response=self.client.put("/api/erp-state/",{"data":payload,"revision":0},format="json")
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(set(response.json()["rejected_keys"]),set(payload))
+        self.assertFalse(ERPState.objects.exists())
 
     def test_delete_all_preserves_only_current_admin_and_empty_snapshot(self):
         User.objects.create_user(
@@ -47,4 +55,4 @@ class ERPStateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(list(User.objects.values_list("id", flat=True)), [self.user.id])
         self.assertFalse(Location.objects.exists())
-        self.assertEqual(self.client.get("/api/erp-state/").json()["data"], empty)
+        self.assertEqual(self.client.get("/api/erp-state/").json()["data"], {})

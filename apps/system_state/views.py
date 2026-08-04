@@ -8,13 +8,20 @@ from common.viewsets import hard_delete_instance
 
 from .models import ERPState
 
+ERP_STATE_ALLOWED_KEYS=frozenset({"uiPreferences","prototypeData"})
+ERP_STATE_TRANSACTIONAL_KEYS=frozenset({
+    "purchaseInvoices","productionBatches","openingStocks","stockAdjustments","wastages","materialTransfers","stockTransfers",
+    "salesInvoices","salesReturns","customerPayments","supplierPayments","stockLedger","inventoryBalances","customerBalances",
+    "supplierBalances","reports","dashboard","counters",
+})
 
 class ERPStateView(APIView):
     def get(self, request):
         state = ERPState.objects.filter(key="default").first()
         if state is None:
             return Response({"data": None, "revision": 0})
-        return Response({"data": state.data, "revision": state.revision})
+        safe_data={key:state.data[key] for key in ERP_STATE_ALLOWED_KEYS if key in state.data}
+        return Response({"data": safe_data, "revision": state.revision})
 
     @transaction.atomic
     def put(self, request):
@@ -24,13 +31,16 @@ class ERPStateView(APIView):
             return Response({"detail": "data must be a JSON object"}, status=400)
         if expected_revision is None:
             return Response({"detail": "revision is required for optimistic locking"}, status=400)
+        rejected=sorted(set(data)-ERP_STATE_ALLOWED_KEYS)
+        if rejected:
+            return Response({"detail":"ERPState only accepts prototype/UI snapshot data. Normalized transactional data must use its backend API.","rejected_keys":rejected,"allowed_keys":sorted(ERP_STATE_ALLOWED_KEYS)},status=400)
 
         state, created = ERPState.objects.select_for_update().get_or_create(key="default")
         if created:
             state.revision = 0
         if int(expected_revision) != state.revision:
             return Response({"detail": "ERP state is stale. Refresh before saving.", "revision": state.revision}, status=409)
-        state.data = data
+        state.data = {key:data[key] for key in ERP_STATE_ALLOWED_KEYS if key in data}
         state.revision += 1
         state.updated_by = request.user
         state.save(update_fields=["data", "revision", "updated_by", "updated_at"])
@@ -59,5 +69,6 @@ class DeleteAllDataView(APIView):
                 hard_delete_instance(instance, seen)
 
         keep_user.__class__.objects.exclude(pk=keep_user.pk).delete()
-        ERPState.objects.create(key="default", data=empty_state, revision=1, updated_by=keep_user)
+        safe_state={key:empty_state[key] for key in ERP_STATE_ALLOWED_KEYS if key in empty_state}
+        ERPState.objects.create(key="default", data=safe_state, revision=1, updated_by=keep_user)
         return Response({"success": True, "message": "All system data was deleted. The main administrator was preserved."})

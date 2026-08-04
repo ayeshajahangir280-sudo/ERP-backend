@@ -5,12 +5,47 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.viewsets import ReadOnlyModelViewSet
+from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 from django.db import models, transaction
 from django.db.models import Case, DecimalField, F, Sum, Value, When
 from apps.accounts.permissions import HasModulePermission
-from .models import InventoryBalance,StockTransaction
-from .serializers import StockTransactionSerializer
+from .models import InventoryBalance,StockAdjustment,StockTransaction,WastageDocument
+from .serializers import StockAdjustmentSerializer,StockTransactionSerializer,WastageDocumentSerializer
+from .document_services import cancel_stock_document,generated_number,post_stock_document,transition
+
+class StockDocumentViewSet(ModelViewSet):
+ permission_classes=[HasModulePermission]
+ filterset_fields=["status","location","raw_material","finished_product"]
+ document_class=None;number_field=None;number_prefix=None
+ def get_queryset(self):
+  qs=self.document_class.objects.select_related("raw_material","finished_product","location","unit").order_by("-created_at");u=self.request.user
+  if u.role!="ADMINISTRATOR" and not u.can_access_all_locations and u.assigned_location_id:qs=qs.filter(location=u.assigned_location)
+  return qs
+ def perform_create(self,serializer):
+  serializer.save(created_by=self.request.user,**{self.number_field:generated_number(self.number_prefix)})
+ def perform_destroy(self,instance):
+  if instance.status!="DRAFT":raise __import__("rest_framework.exceptions",fromlist=["ValidationError"]).ValidationError("Only draft documents can be deleted.")
+  instance.delete()
+ def _transition(self,request,pk,target):
+  obj=transition(self.document_class,pk,request.user,target);return Response(self.get_serializer(obj).data)
+ @action(detail=True,methods=["post"])
+ def submit(self,request,pk=None):return self._transition(request,pk,"SUBMITTED")
+ @action(detail=True,methods=["post"])
+ def approve(self,request,pk=None):return self._transition(request,pk,"APPROVED")
+ @action(detail=True,methods=["post"])
+ def post(self,request,pk=None):
+  obj=post_stock_document(self.document_class,pk,request.user);return Response(self.get_serializer(obj).data)
+ @action(detail=True,methods=["post"])
+ def cancel(self,request,pk=None):
+  reason=str(request.data.get("reason","")).strip()
+  if not reason:return Response({"detail":"Cancellation reason is required."},status=400)
+  obj=cancel_stock_document(self.document_class,pk,request.user,reason);return Response(self.get_serializer(obj).data)
+
+class WastageDocumentViewSet(StockDocumentViewSet):
+ serializer_class=WastageDocumentSerializer;module_name="wastage";document_class=WastageDocument;number_field="document_number";number_prefix="WST"
+
+class StockAdjustmentViewSet(StockDocumentViewSet):
+ serializer_class=StockAdjustmentSerializer;module_name="stock_adjustments";document_class=StockAdjustment;number_field="adjustment_number";number_prefix="ADJ"
 
 def opening_datetime(value):
  if not value:return timezone.now()
