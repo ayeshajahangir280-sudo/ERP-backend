@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 from apps.accounts.models import User
 from apps.inventory.models import StockTransaction
 from apps.inventory.services import get_average_cost, get_finished_product_stock
+from apps.inventory.posting import post_movement
 from apps.locations.models import Location
 from apps.master_data.models import FinishedProduct, ItemCategory, UnitOfMeasurement
 
@@ -33,13 +34,10 @@ class CombinedStockTests(TestCase):
         )
 
     def entry(self, number, location, quantity, cost, batch):
-        return StockTransaction.objects.create(
-            transaction_number=number, transaction_date=timezone.now(),
-            transaction_type="PRODUCTION_OUTPUT", reference_type="ProductionBatch",
-            reference_id=uuid.uuid4(), finished_product=self.product, batch=batch,
-            destination_location=location, quantity_in=quantity, unit=self.unit,
-            unit_cost=cost, total_value=quantity * cost, created_by=self.user,
-        )
+        entry,_=post_movement(item=self.product,location=location,quantity=quantity,direction="IN",transaction_number=number,transaction_type="PRODUCTION_OUTPUT",reference_type="ProductionBatch",reference_id=uuid.uuid4(),unit=self.unit,user=self.user,incoming_unit_cost=cost)
+        StockTransaction.objects.filter(pk=entry.pk).update(batch=batch)
+        entry.batch=batch
+        return entry
 
     def test_historical_batches_combine_by_product_and_location(self):
         first = self.entry("OLD-A", self.dubai, Decimal("40"), Decimal("2"), "A")

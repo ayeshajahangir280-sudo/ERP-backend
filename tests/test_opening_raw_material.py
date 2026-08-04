@@ -50,7 +50,8 @@ class OpeningRawMaterialTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        transaction = StockTransaction.objects.get(reference_type="OpeningRawMaterial")
+        transaction = StockTransaction.objects.get(reference_type="OpeningStock")
+        self.assertEqual(transaction.transaction_type, "OPENING_STOCK")
         self.assertEqual(transaction.quantity_in, Decimal("25.500"))
         self.assertEqual(transaction.total_value, Decimal("114.75"))
         self.assertEqual(transaction.destination_location, self.warehouse)

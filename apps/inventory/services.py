@@ -1,7 +1,7 @@
 from decimal import Decimal
 from django.db.models import Sum,Q,DecimalField,Case,When,F,Value
 from django.db.models.functions import Coalesce,Abs
-from .models import StockTransaction
+from .models import InventoryBalance,StockTransaction
 ZERO=Decimal("0")
 def _stock(qs): return qs.aggregate(v=Coalesce(Sum("quantity_in")-Sum("quantity_out"),ZERO,output_field=DecimalField()))["v"]
 def get_raw_material_stock(material,location): return _stock(StockTransaction.objects.filter(raw_material=material).filter(Q(destination_location=location)|Q(source_location=location)))
@@ -9,10 +9,15 @@ def get_finished_product_stock(product,location,batch=None):
  """Combined product stock. ``batch`` is accepted only for API compatibility."""
  qs=StockTransaction.objects.filter(finished_product=product).filter(Q(destination_location=location)|Q(source_location=location))
  return _stock(qs)
-def get_available_stock(item,location): return get_raw_material_stock(item,location) if item._meta.model_name=="rawmaterial" else get_finished_product_stock(item,location)
+def get_available_stock(item,location):
+ field="raw_material" if item._meta.model_name=="rawmaterial" else "finished_product"
+ balance=InventoryBalance.objects.filter(**{field:item},location=location).first()
+ return balance.current_quantity if balance else (get_raw_material_stock(item,location) if field=="raw_material" else get_finished_product_stock(item,location))
 def get_average_cost(item,location):
  """Current moving balance value / quantity for an item at one location."""
  field="raw_material" if item._meta.model_name=="rawmaterial" else "finished_product"
+ balance=InventoryBalance.objects.filter(**{field:item},location=location).first()
+ if balance:return balance.average_unit_cost
  qs=StockTransaction.objects.filter(**{field:item}).filter(Q(destination_location=location)|Q(source_location=location))
  totals=qs.aggregate(
   quantity=Coalesce(Sum(F("quantity_in")-F("quantity_out")),ZERO,output_field=DecimalField()),
