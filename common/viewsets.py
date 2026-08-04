@@ -1,6 +1,33 @@
 from rest_framework.viewsets import ModelViewSet
 from django.db.models.deletion import ProtectedError, RestrictedError
 
+
+def hard_delete_instance(instance, seen=None):
+    """Delete an object and every record that keeps it alive through a FK.
+
+    This is intentionally reserved for master-data deletion.  Normal document
+    deletion continues to use Django's regular protection rules.
+    """
+    seen = seen or set()
+    identity = (instance._meta.label_lower, instance.pk)
+    if identity in seen:
+        return
+    seen.add(identity)
+
+    for relation in instance._meta.related_objects:
+        if relation.many_to_many:
+            continue
+        field = relation.field
+        related = relation.related_model._base_manager.filter(**{field.name: instance})
+        if field.remote_field.on_delete.__name__ in {"SET_NULL", "SET_DEFAULT"}:
+            value = None if field.null else field.get_default()
+            related.update(**{field.name: value})
+            continue
+        for child in list(related):
+            hard_delete_instance(child, seen)
+
+    instance.__class__._base_manager.filter(pk=instance.pk)._raw_delete(instance._state.db)
+
 class AuditedModelViewSet(ModelViewSet):
     def perform_create(self,serializer): serializer.save(created_by=self.request.user,updated_by=self.request.user)
     def perform_update(self,serializer): serializer.save(updated_by=self.request.user)
