@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 import environ, dj_database_url
+from corsheaders.defaults import default_headers
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,7 +41,9 @@ LANGUAGE_CODE="en-us"; TIME_ZONE=env("TIME_ZONE",default="Asia/Dubai"); USE_I18N
 STATIC_URL="/static/"; STATIC_ROOT=BASE_DIR/"staticfiles"; MEDIA_URL="/media/"; MEDIA_ROOT=BASE_DIR/"media"; DEFAULT_AUTO_FIELD="django.db.models.BigAutoField"
 CORS_ALLOW_ALL_ORIGINS=env.bool("CORS_ALLOW_ALL_ORIGINS",default=False)
 CORS_ORIGIN_ALLOW_ALL=CORS_ALLOW_ALL_ORIGINS
-CORS_ALLOWED_ORIGINS=[
+CORS_ALLOWED_ORIGINS=list(dict.fromkeys([
+    "https://bakemaster-erp.vercel.app",
+    *[
     origin.rstrip("/")
     for origin in env.list(
         "CORS_ALLOWED_ORIGINS",
@@ -55,7 +58,9 @@ CORS_ALLOWED_ORIGINS=[
         ],
     )
     if origin.strip()
-]
+    ],
+]))
+CORS_ALLOW_HEADERS=(*default_headers,"idempotency-key")
 CORS_ALLOWED_ORIGIN_REGEXES=[
     r"^https://.*\.vercel\.app$",
 ]

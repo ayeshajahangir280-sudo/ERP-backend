@@ -143,6 +143,7 @@ class StockTransactionViewSet(ReadOnlyModelViewSet):
   entry,_=post_movement(item=item,location=location,quantity=abs(quantity),direction="IN" if incoming else "OUT",transaction_number=f"ADJ-{reference_id}",transaction_type="STOCK_ADJUSTMENT_IN" if incoming else "STOCK_ADJUSTMENT_OUT",reference_type="StockAdjustment",reference_id=reference_id,unit=item.base_unit if item_type=="RM" else item.sales_unit,user=request.user,incoming_unit_cost=unit_cost if incoming else None,remarks=reason,audit_action="Stock adjustment")
   return Response({"success":True,"data":self.get_serializer(entry).data},status=status.HTTP_201_CREATED)
  @action(detail=False,methods=["post"],url_path="clear-finished-goods")
+ @idempotent_action
  def clear_finished_goods(self,request):
   from apps.locations.models import Location
   from apps.master_data.models import FinishedProduct
