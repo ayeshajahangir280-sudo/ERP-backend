@@ -5,10 +5,14 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import LoginSerializer,UserSerializer,ChangePasswordSerializer
+from drf_spectacular.utils import OpenApiTypes,extend_schema,inline_serializer
+from rest_framework import serializers
 class LoginView(TokenObtainPairView): permission_classes=[AllowAny]; serializer_class=LoginSerializer
 class MeView(APIView):
+    @extend_schema(operation_id="auth_me",responses=UserSerializer)
     def get(self,request): return Response({"success":True,"data":UserSerializer(request.user).data})
 class LogoutView(APIView):
+    @extend_schema(operation_id="auth_logout",request=inline_serializer("LogoutRequest",fields={"refresh":serializers.CharField()}),responses={200:OpenApiTypes.OBJECT})
     def post(self,request):
         RefreshToken(request.data["refresh"]).blacklist(); return Response({"success":True,"message":"Logged out."})
 class ChangePasswordView(generics.GenericAPIView):

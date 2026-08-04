@@ -1,5 +1,6 @@
 from decimal import Decimal
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from .models import CustomerPayment,CustomerPaymentAllocation,SupplierPayment,SupplierPaymentAllocation
 
 class AllocationSerializer(serializers.ModelSerializer):
@@ -12,8 +13,10 @@ class SupplierPaymentAllocationSerializer(AllocationSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
  allocated_amount=serializers.SerializerMethodField();unallocated_amount=serializers.SerializerMethodField()
- def get_allocated_amount(self,obj):return sum((x.amount for x in obj.allocations.all()),Decimal("0"))
- def get_unallocated_amount(self,obj):return obj.amount-self.get_allocated_amount(obj)
+ @extend_schema_field(serializers.DecimalField(max_digits=18,decimal_places=2))
+ def get_allocated_amount(self,obj)->Decimal:return sum((x.amount for x in obj.allocations.all()),Decimal("0"))
+ @extend_schema_field(serializers.DecimalField(max_digits=18,decimal_places=2))
+ def get_unallocated_amount(self,obj)->Decimal:return obj.amount-self.get_allocated_amount(obj)
  def validate(self,data):
   if self.instance and self.instance.status!="DRAFT":raise serializers.ValidationError("Posted or cancelled payments are immutable.")
   allocations=data.get("allocations",[]);total=sum((x["amount"] for x in allocations),Decimal("0"))

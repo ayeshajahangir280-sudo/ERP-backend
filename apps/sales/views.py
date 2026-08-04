@@ -11,6 +11,8 @@ class SalesInvoiceViewSet(AuditedModelViewSet):
  serializer_class=SalesInvoiceSerializer;permission_classes=[HasModulePermission,HasLocationAccess];module_name="sales"
  def get_queryset(self):
   q=SalesInvoice.objects.prefetch_related("items").order_by("-invoice_date");u=self.request.user
+  if getattr(self,"swagger_fake_view",False):return q.none()
+  if not getattr(u,"is_authenticated",False):return q.none()
   return q if u.role=="ADMINISTRATOR" or u.can_access_all_locations or not u.assigned_location_id else q.filter(sales_location=u.assigned_location)
  @action(detail=True,methods=["post"])
  @idempotent_action
@@ -22,6 +24,8 @@ class SalesReturnViewSet(AuditedModelViewSet):
  serializer_class=SalesReturnSerializer;permission_classes=[HasModulePermission,HasLocationAccess];module_name="sales_returns"
  def get_queryset(self):
   q=SalesReturn.objects.prefetch_related("items").order_by("-return_date");u=self.request.user
+  if getattr(self,"swagger_fake_view",False):return q.none()
+  if not getattr(u,"is_authenticated",False):return q.none()
   return q if u.role=="ADMINISTRATOR" or u.can_access_all_locations or not u.assigned_location_id else q.filter(return_location=u.assigned_location)
  def perform_create(self,serializer):serializer.save(return_number=generated_number("SRT"),created_by=self.request.user,updated_by=self.request.user)
  @action(detail=True,methods=["post"])

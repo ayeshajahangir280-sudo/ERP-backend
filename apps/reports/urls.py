@@ -1,8 +1,8 @@
 from django.urls import path
-from .views import DashboardView,DocumentReport,InventoryReport,ProductionReport,PurchaseReport,ReconciliationReport,ReportExportDownloadView,ReportExportJobView,ReturnsPaymentsReport,SalesReport,StockLedgerReport
+from .views import DashboardView,DocumentReport,InventoryReport,ProductionReport,PurchaseReport,ReconciliationReport,ReportExportCollectionView,ReportExportDetailView,ReportExportDownloadView,ReturnsPaymentsReport,SalesReport,StockLedgerReport
 
 urlpatterns=[path("dashboard/",DashboardView.as_view(),name="dashboard")]
-urlpatterns += [path("report-exports/",ReportExportJobView.as_view(),name="report-export-list"),path("report-exports/<uuid:pk>/",ReportExportJobView.as_view(),name="report-export-detail"),path("report-exports/<uuid:pk>/download/",ReportExportDownloadView.as_view(),name="report-export-download")]
+urlpatterns += [path("report-exports/",ReportExportCollectionView.as_view(),name="report-export-list"),path("report-exports/<uuid:pk>/",ReportExportDetailView.as_view(),name="report-export-detail"),path("report-exports/<uuid:pk>/download/",ReportExportDownloadView.as_view(),name="report-export-download")]
 def add(slugs,view):
     for slug in slugs:urlpatterns.append(path(f"reports/{slug}/",view.as_view(report_name=slug),name=f"report-{slug}"))
 add(("raw-material-stock","production-stock","finished-goods-stock","stock-by-location","inventory-valuation"),InventoryReport)

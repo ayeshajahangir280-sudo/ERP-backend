@@ -8,6 +8,8 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import OpenApiTypes,extend_schema,inline_serializer
+from rest_framework import serializers
 
 from apps.accounts.permissions import HasModulePermission
 from apps.inventory.models import InventoryBalance,StockAdjustment,StockTransaction,WastageDocument
@@ -42,6 +44,7 @@ class Echo:
 class ReportView(APIView):
     permission_classes=[HasModulePermission];module_name="reports";report_name=None
     def rows(self,request):raise NotImplementedError
+    @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self,request):
         rows=self.rows(request)
         if request.query_params.get("export")=="csv":
@@ -157,6 +160,7 @@ class ReconciliationReport(ReportView):
 
 class DashboardView(APIView):
     permission_classes=[HasModulePermission];module_name="dashboard"
+    @extend_schema(operation_id="dashboard_retrieve",responses=OpenApiTypes.OBJECT)
     def get(self,request):
         today=timezone.localdate();location=_location_id(request);active=["POSTED","PARTIALLY_PAID","PAID","OVERDUE"]
         purchases=PurchaseInvoice.objects.filter(status__in=active);sales=SalesInvoice.objects.filter(status__in=active);production=ProductionBatch.objects.filter(status__in=["COMPLETED","POSTED"]);balances=InventoryBalance.objects.all()
@@ -198,8 +202,21 @@ class SimpleRequest:
 
 class ReportExportDownloadView(APIView):
     permission_classes=[HasModulePermission];module_name="reports"
+    @extend_schema(operation_id="report_export_download",responses={(200,"application/octet-stream"):OpenApiTypes.BINARY})
     def get(self,request,pk):
         job=ReportExportJob.objects.filter(requested_by=request.user).get(pk=pk)
         if job.status!="COMPLETED" or not job.file:return Response({"detail":"Export is not available."},status=409)
         if job.expires_at<=timezone.now():return Response({"detail":"Export has expired."},status=410)
         return FileResponse(job.file.open("rb"),as_attachment=True,filename=job.file.name.rsplit("/",1)[-1])
+
+class ReportExportCollectionView(ReportExportJobView):
+    @extend_schema(operation_id="report_export_list",responses=OpenApiTypes.OBJECT)
+    def get(self,request):return super().get(request)
+    @extend_schema(operation_id="report_export_create",request=inline_serializer("ReportExportCreateRequest",fields={"report_name":serializers.CharField(),"format":serializers.ChoiceField(choices=("CSV","XLSX")),"filters":serializers.JSONField(required=False)}),responses={202:OpenApiTypes.OBJECT})
+    def post(self,request):return super().post(request)
+
+class ReportExportDetailView(ReportExportJobView):
+    @extend_schema(operation_id="report_export_retrieve",responses=OpenApiTypes.OBJECT)
+    def get(self,request,pk):return super().get(request,pk)
+    @extend_schema(operation_id="report_export_retry",request=None,responses=OpenApiTypes.OBJECT)
+    def post(self,request,pk):return super().post(request,pk)

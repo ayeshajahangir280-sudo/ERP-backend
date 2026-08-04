@@ -30,6 +30,8 @@ class CustomerPaymentViewSet(PaymentViewSet):
  serializer_class=CustomerPaymentSerializer;module_name="customer_payments";payment_class=CustomerPayment;prefix="CPY"
  def get_queryset(self):
   qs=super().get_queryset();u=self.request.user
+  if getattr(self,"swagger_fake_view",False):return qs.none()
+  if not getattr(u,"is_authenticated",False):return qs.none()
   if u.role!="ADMINISTRATOR" and not u.can_access_all_locations and u.assigned_location_id:qs=qs.filter(customer__assigned_location=u.assigned_location)
   return qs
 class SupplierPaymentViewSet(PaymentViewSet):

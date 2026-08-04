@@ -66,10 +66,13 @@ USE_X_FORWARDED_HOST=True
 CSRF_TRUSTED_ORIGINS=[origin.rstrip("/") for origin in env.list("CSRF_TRUSTED_ORIGINS",default=[]) if origin.strip()]
 SESSION_COOKIE_SECURE=not DEBUG
 CSRF_COOKIE_SECURE=not DEBUG
-SECURE_SSL_REDIRECT=False
-SECURE_HSTS_SECONDS=31536000 if not DEBUG else 0
+SECURE_SSL_REDIRECT=env.bool("SECURE_SSL_REDIRECT",default=not DEBUG)
+SECURE_HSTS_SECONDS=env.int("SECURE_HSTS_SECONDS",default=31536000 if not DEBUG else 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS=env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS",default=False)
+SECURE_HSTS_PRELOAD=env.bool("SECURE_HSTS_PRELOAD",default=False)
+ALLOW_DELETE_ALL_DATA=env.bool("ALLOW_DELETE_ALL_DATA",default=False)
 STORAGES={"default":{"BACKEND":"django.core.files.storage.FileSystemStorage"},"staticfiles":{"BACKEND":"whitenoise.storage.CompressedManifestStaticFilesStorage"}}
 REST_FRAMEWORK={"DEFAULT_AUTHENTICATION_CLASSES":["rest_framework_simplejwt.authentication.JWTAuthentication"],"DEFAULT_PERMISSION_CLASSES":["rest_framework.permissions.IsAuthenticated"],"DEFAULT_FILTER_BACKENDS":["django_filters.rest_framework.DjangoFilterBackend","rest_framework.filters.SearchFilter","rest_framework.filters.OrderingFilter"],"DEFAULT_PAGINATION_CLASS":"common.pagination.StandardPagination","PAGE_SIZE":25,"DEFAULT_SCHEMA_CLASS":"drf_spectacular.openapi.AutoSchema","EXCEPTION_HANDLER":"common.exceptions.api_exception_handler"}
 SIMPLE_JWT={"ACCESS_TOKEN_LIFETIME":timedelta(minutes=env.int("ACCESS_TOKEN_LIFETIME_MINUTES",default=60)),"REFRESH_TOKEN_LIFETIME":timedelta(days=env.int("REFRESH_TOKEN_LIFETIME_DAYS",default=7)),"ROTATE_REFRESH_TOKENS":True,"BLACKLIST_AFTER_ROTATION":True}
-SPECTACULAR_SETTINGS={"TITLE":"BakeryFlow ERP API","VERSION":"1.0.0","SERVE_INCLUDE_SCHEMA":False}
+SPECTACULAR_SETTINGS={"TITLE":"BakeryFlow ERP API","VERSION":"1.0.0","SERVE_INCLUDE_SCHEMA":False,"ENUM_NAME_OVERRIDES":{"MasterDataStatusEnum":[("ACTIVE","Active"),("INACTIVE","Inactive")],"StockDocumentStatusEnum":[("DRAFT","Draft"),("SUBMITTED","Submitted"),("APPROVED","Approved"),("POSTED","Posted"),("CANCELLED","Cancelled")],"PaymentStatusEnum":[("DRAFT","Draft"),("POSTED","Posted"),("CANCELLED","Cancelled")]}}
 CELERY_BROKER_URL=env("REDIS_URL",default="redis://localhost:6379/0"); CELERY_TASK_ALWAYS_EAGER=False

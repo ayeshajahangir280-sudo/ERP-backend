@@ -5,6 +5,9 @@ from rest_framework import status
 from apps.accounts.permissions import IsAdministrator
 from django.apps import apps
 from common.viewsets import hard_delete_instance
+from django.conf import settings
+from drf_spectacular.utils import OpenApiTypes,extend_schema,inline_serializer
+from rest_framework import serializers
 
 from .models import ERPState
 
@@ -29,6 +32,7 @@ def validate_ui_preferences(value,path="uiPreferences"):
     return f"{path} contains an unsupported value."
 
 class ERPStateView(APIView):
+    @extend_schema(operation_id="erp_state_retrieve",responses=OpenApiTypes.OBJECT)
     def get(self, request):
         state = ERPState.objects.filter(key="default").first()
         if state is None:
@@ -37,6 +41,7 @@ class ERPStateView(APIView):
         return Response({"data": safe_data, "revision": state.revision})
 
     @transaction.atomic
+    @extend_schema(operation_id="erp_state_update",request=inline_serializer("ERPStateUpdateRequest",fields={"data":serializers.JSONField(),"revision":serializers.IntegerField()}),responses=OpenApiTypes.OBJECT)
     def put(self, request):
         data = request.data.get("data")
         expected_revision = request.data.get("revision")
@@ -67,8 +72,13 @@ class DeleteAllDataView(APIView):
     permission_classes = [IsAdministrator]
 
     @transaction.atomic
+    @extend_schema(operation_id="system_delete_all_data",request=inline_serializer("DeleteAllDataRequest",fields={"confirmation":serializers.CharField(),"data":serializers.JSONField()}),responses={200:OpenApiTypes.OBJECT,403:OpenApiTypes.OBJECT})
     def post(self, request):
         """Remove all ERP business data while preserving the signed-in admin."""
+        if not settings.ALLOW_DELETE_ALL_DATA:
+            return Response({"detail":"Delete-all-data is disabled on this deployment."},status=status.HTTP_403_FORBIDDEN)
+        if request.data.get("confirmation")!="DELETE ALL DATA":
+            return Response({"detail":"Set confirmation to DELETE ALL DATA to continue."},status=status.HTTP_400_BAD_REQUEST)
         empty_state = request.data.get("data")
         if not isinstance(empty_state, dict):
             return Response({"detail": "data must be a JSON object"}, status=status.HTTP_400_BAD_REQUEST)

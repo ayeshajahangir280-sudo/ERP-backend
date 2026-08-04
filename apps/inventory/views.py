@@ -20,6 +20,8 @@ class StockDocumentViewSet(ModelViewSet):
  document_class=None;number_field=None;number_prefix=None
  def get_queryset(self):
   qs=self.document_class.objects.select_related("raw_material","finished_product","location","unit").order_by("-created_at");u=self.request.user
+  if getattr(self,"swagger_fake_view",False):return qs.none()
+  if not getattr(u,"is_authenticated",False):return qs.none()
   if u.role!="ADMINISTRATOR" and not u.can_access_all_locations and u.assigned_location_id:qs=qs.filter(location=u.assigned_location)
   return qs
  def perform_create(self,serializer):
@@ -59,6 +61,8 @@ class StockTransactionViewSet(ReadOnlyModelViewSet):
  serializer_class=StockTransactionSerializer; permission_classes=[HasModulePermission]; module_name="inventory"; filterset_fields=["transaction_type","raw_material","finished_product","source_location","destination_location"]
  def get_queryset(self):
   qs=StockTransaction.objects.all().order_by("-transaction_date"); u=self.request.user
+  if getattr(self,"swagger_fake_view",False):return qs.none()
+  if not getattr(u,"is_authenticated",False):return qs.none()
   if u.role!="ADMINISTRATOR" and not u.can_access_all_locations and u.assigned_location_id: qs=qs.filter(models.Q(source_location=u.assigned_location)|models.Q(destination_location=u.assigned_location))
   return qs
  @action(detail=False,methods=["get"],url_path="balances")
