@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.db.utils import OperationalError
 from unittest.mock import patch
 from rest_framework.test import APIClient
@@ -17,10 +17,22 @@ class AccessTests(TestCase):
  def test_health_reports_connected_database(self):
   response=self.client.get("/api/health/")
   self.assertEqual(response.status_code,200)
-  self.assertEqual(response.json(),{"status":"ok","database":"connected"})
+  self.assertEqual(response.json(),{"status":"ok"})
 
  @patch("config.urls.connection.ensure_connection",side_effect=OperationalError)
  def test_health_reports_unavailable_database(self,_ensure_connection):
   response=self.client.get("/api/health/")
   self.assertEqual(response.status_code,503)
-  self.assertEqual(response.json(),{"status":"error","database":"unavailable"})
+  self.assertEqual(response.json(),{"status":"error"})
+
+ @override_settings(SECURE_SSL_REDIRECT=True)
+ def test_internal_health_is_exempt_from_https_redirect(self):
+  response=self.client.get("/api/health/",secure=False)
+  self.assertEqual(response.status_code,200)
+  self.assertEqual(response.json(),{"status":"ok"})
+
+ @override_settings(SECURE_SSL_REDIRECT=True)
+ def test_normal_api_route_still_redirects_to_https(self):
+  response=self.client.get("/api/auth/me/",secure=False)
+  self.assertEqual(response.status_code,301)
+  self.assertTrue(response["Location"].startswith("https://"))

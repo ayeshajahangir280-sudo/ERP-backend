@@ -24,6 +24,10 @@ The conservative `False` values for HSTS subdomains and preload are intentional.
 
 The delete-all endpoint remains unavailable in production while `ALLOW_DELETE_ALL_DATA=False`. A controlled maintenance deployment may enable it temporarily, but the endpoint still requires an authenticated Administrator and the exact confirmation text `DELETE ALL DATA`; disable it again immediately afterward.
 
+Test-account provisioning is disabled by default with `CREATE_TEST_ACCOUNT=False`. Production must retain that value. For an explicitly authorized temporary test environment only, set `CREATE_TEST_ACCOUNT=True` and provide `TEST_ACCOUNT_PASSWORD` as a secret; startup and management commands never print the password.
+
+The internal Dokploy health check may call `http://127.0.0.1:8000/api/health/`. That single path is exempt from Django's HTTPS redirect and returns only `{"status":"ok"}` when the database connection is available. All other application and API paths retain `SECURE_SSL_REDIRECT` protection.
+
 ## Deployment
 
 1. Create and verify an off-server backup.

@@ -3,7 +3,9 @@ set -e
 
 python manage.py check --deploy
 python manage.py migrate --noinput
-python manage.py ensure_test_account
+case "${CREATE_TEST_ACCOUNT:-false}" in
+    true|TRUE|True|1|yes|YES|on|ON) python manage.py ensure_test_account ;;
+esac
 python manage.py collectstatic --noinput
 
 exec gunicorn config.wsgi:application \

@@ -15,4 +15,4 @@ class Command(BaseCommand):
   for key,name,role,loc,all_locs in users:
    u,created=User.objects.get_or_create(email=f"{key}@bakeryflow.local",defaults={"full_name":name,"employee_code":key.upper(),"role":role,"assigned_location":locations.get(loc),"can_access_all_locations":all_locs,"allowed_modules":ROLE_MODULES[role],"is_staff":role=="ADMINISTRATOR"})
    if created:u.set_password(password);u.save()
-  self.stdout.write(self.style.SUCCESS(f"Demo data seeded. Password: {password}"))
+  self.stdout.write(self.style.SUCCESS("Demo data seeded."))
