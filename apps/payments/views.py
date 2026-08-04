@@ -6,6 +6,7 @@ from apps.accounts.permissions import HasModulePermission
 from .models import CustomerPayment,SupplierPayment
 from .serializers import CustomerPaymentSerializer,SupplierPaymentSerializer
 from .services import cancel_payment,payment_number,post_payment
+from common.idempotency import idempotent_action
 
 class PaymentViewSet(ModelViewSet):
  permission_classes=[HasModulePermission];filterset_fields=["status","payment_date"]
@@ -16,8 +17,10 @@ class PaymentViewSet(ModelViewSet):
   if instance.status!="DRAFT":raise ValidationError("Posted or cancelled payments cannot be deleted.")
   instance.delete()
  @action(detail=True,methods=["post"])
+ @idempotent_action
  def post(self,request,pk=None):return Response(self.get_serializer(post_payment(self.payment_class,pk,request.user)).data)
  @action(detail=True,methods=["post"])
+ @idempotent_action
  def cancel(self,request,pk=None):
   reason=str(request.data.get("reason","")).strip()
   if not reason:raise ValidationError("Cancellation reason is required.")

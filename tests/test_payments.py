@@ -7,6 +7,7 @@ from apps.locations.models import Location
 from apps.master_data.models import Customer,PaymentMethod,Supplier
 from apps.purchasing.models import PurchaseInvoice,SupplierLedger
 from apps.sales.models import CustomerLedger,SalesInvoice
+from apps.system_state.models import IdempotencyRecord
 
 class PaymentWorkflowTests(TestCase):
  def setUp(self):
@@ -37,3 +38,13 @@ class PaymentWorkflowTests(TestCase):
   response=self.client.post("/api/supplier-payments/",{"supplier":str(self.supplier.id),"payment_date":str(timezone.localdate()),"amount":"50","payment_method":str(self.method.id),"allocations":[{"invoice":str(invoice.id),"amount":"50"}]},format="json");pk=response.data["id"]
   self.assertEqual(self.client.post(f"/api/supplier-payments/{pk}/post/").status_code,200);invoice.refresh_from_db();self.assertEqual(invoice.outstanding_amount,Decimal("25"));self.assertEqual(SupplierLedger.objects.get().debit,Decimal("50"))
   self.assertEqual(self.client.post(f"/api/supplier-payments/{pk}/cancel/",{"reason":"Void"},format="json").status_code,200);invoice.refresh_from_db();self.assertEqual(invoice.outstanding_amount,Decimal("75"))
+ def test_idempotency_key_replays_and_rejects_payload_change(self):
+  invoice=self.sales_invoice("PAY-IDEM",Decimal("50"))
+  created=self.client.post("/api/customer-payments/",{"customer":str(self.customer.id),"payment_date":str(timezone.localdate()),"amount":"50","payment_method":str(self.method.id),"allocations":[{"invoice":str(invoice.id),"amount":"50"}]},format="json")
+  url=f"/api/customer-payments/{created.data['id']}/post/"
+  first=self.client.post(url,{},format="json",HTTP_IDEMPOTENCY_KEY="payment-post-1")
+  replay=self.client.post(url,{},format="json",HTTP_IDEMPOTENCY_KEY="payment-post-1")
+  conflict=self.client.post(url,{"changed":True},format="json",HTTP_IDEMPOTENCY_KEY="payment-post-1")
+  self.assertEqual(first.status_code,200);self.assertEqual(replay.status_code,200)
+  self.assertEqual(replay["Idempotency-Replayed"],"true");self.assertEqual(conflict.status_code,409)
+  self.assertEqual(CustomerLedger.objects.count(),1);self.assertEqual(IdempotencyRecord.objects.count(),1)

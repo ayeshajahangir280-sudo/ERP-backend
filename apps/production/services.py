@@ -67,6 +67,8 @@ def reverse_production(pk, user, reason):
     if not str(reason).strip():
         raise ValidationError("Cancellation reason is required.")
     production = ProductionBatch.objects.select_for_update().get(pk=pk)
+    if production.status == "CANCELLED":
+        return production
     if production.status != "COMPLETED":
         raise ValidationError("Only completed production can be reversed.")
     originals = list(StockTransaction.objects.select_for_update().filter(

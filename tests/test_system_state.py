@@ -43,6 +43,12 @@ class ERPStateTests(TestCase):
         self.assertEqual(set(response.json()["rejected_keys"]),set(payload))
         self.assertFalse(ERPState.objects.exists())
 
+    def test_nested_disguised_transactional_state_is_rejected(self):
+        for preferences in ({"widgets":{"Stock_Ledger":[{"quantity":999}]}},{"PAYMENTS":{"fake":True}},{"layout":[{"purchaseInvoices":[]}]},):
+            response=self.client.put("/api/erp-state/",{"data":{"uiPreferences":preferences},"revision":0},format="json")
+            self.assertEqual(response.status_code,400)
+        self.assertFalse(ERPState.objects.exists())
+
     def test_delete_all_preserves_only_current_admin_and_empty_snapshot(self):
         User.objects.create_user(
             "other@test.local", "password123", full_name="Other", employee_code="OTHER-1", role="SALES"

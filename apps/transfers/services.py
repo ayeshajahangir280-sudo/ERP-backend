@@ -57,7 +57,7 @@ def receive(transfer,user,lines,finished=False):
 def cancel_transfer(transfer,user,reason):
  if not str(reason).strip():raise ValidationError("Cancellation reason is required.")
  transfer=transfer.__class__.objects.select_for_update().get(pk=transfer.pk)
- if transfer.status=="CANCELLED":raise ValidationError("Transfer is already cancelled.")
+ if transfer.status=="CANCELLED":return transfer
  if transfer.status in {"DRAFT","SUBMITTED","APPROVED"}:
   transfer.status="CANCELLED";transfer.cancelled_at=timezone.now();transfer.cancelled_by=user;transfer.cancellation_reason=reason;transfer.save();return transfer
  originals=list(StockTransaction.objects.select_for_update().filter(reference_type=transfer.__class__.__name__,reference_id=transfer.id,is_reversal=False).order_by("-created_at","-id"))

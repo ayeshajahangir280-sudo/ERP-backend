@@ -12,6 +12,7 @@ from apps.accounts.permissions import HasModulePermission
 from .models import InventoryBalance,StockAdjustment,StockTransaction,WastageDocument
 from .serializers import StockAdjustmentSerializer,StockTransactionSerializer,WastageDocumentSerializer
 from .document_services import cancel_stock_document,generated_number,post_stock_document,transition
+from common.idempotency import idempotent_action
 
 class StockDocumentViewSet(ModelViewSet):
  permission_classes=[HasModulePermission]
@@ -33,9 +34,11 @@ class StockDocumentViewSet(ModelViewSet):
  @action(detail=True,methods=["post"])
  def approve(self,request,pk=None):return self._transition(request,pk,"APPROVED")
  @action(detail=True,methods=["post"])
+ @idempotent_action
  def post(self,request,pk=None):
   obj=post_stock_document(self.document_class,pk,request.user);return Response(self.get_serializer(obj).data)
  @action(detail=True,methods=["post"])
+ @idempotent_action
  def cancel(self,request,pk=None):
   reason=str(request.data.get("reason","")).strip()
   if not reason:return Response({"detail":"Cancellation reason is required."},status=400)
@@ -70,7 +73,21 @@ class StockTransactionViewSet(ReadOnlyModelViewSet):
   from .posting import reconciliation_discrepancies
   if request.user.role!="ADMINISTRATOR":return Response({"detail":"Administrator access is required."},status=403)
   data=reconciliation_discrepancies();return Response({"success":True,"count":len(data),"data":data})
+ @action(detail=True,methods=["post"],url_path="cancel-opening")
+ @idempotent_action
+ @transaction.atomic
+ def cancel_opening(self,request,pk=None):
+  reason=str(request.data.get("reason","")).strip()
+  if not reason:return Response({"detail":"Cancellation reason is required."},status=400)
+  original=StockTransaction.objects.select_for_update().get(pk=pk)
+  if original.transaction_type!="OPENING_STOCK" or original.is_reversal:return Response({"detail":"Only an original opening-stock entry can be cancelled."},status=400)
+  if hasattr(original,"reversal"):return Response(self.get_serializer(original.reversal).data)
+  from .posting import post_movement
+  item=original.raw_material or original.finished_product
+  reversal,_=post_movement(item=item,location=original.destination_location,quantity=original.quantity_in,direction="OUT",transaction_number=f"REV-{original.transaction_number}",transaction_type="OPENING_STOCK_REVERSAL",reference_type=original.reference_type,reference_id=original.reference_id,unit=original.unit,user=request.user,outgoing_unit_cost=original.unit_cost,remarks=f"Opening-stock cancellation: {reason}",reversal_of=original,is_reversal=True,audit_action="Cancel opening stock")
+  return Response(self.get_serializer(reversal).data)
  @action(detail=False,methods=["post"],url_path="opening-finished-goods")
+ @idempotent_action
  def opening_finished_goods(self,request):
   from apps.locations.models import Location
   from apps.master_data.models import FinishedProduct
@@ -156,6 +173,7 @@ class StockTransactionViewSet(ReadOnlyModelViewSet):
   )
   return Response({"success":True,"message":"Finished-goods inventory row removed.","data":self.get_serializer(transaction).data},status=status.HTTP_201_CREATED)
  @action(detail=False,methods=["post"],url_path="opening-raw-material")
+ @idempotent_action
  def opening_raw_material(self,request):
   from apps.locations.models import Location
   from apps.master_data.models import RawMaterial

@@ -62,6 +62,7 @@ def post_sale(pk, user):
 def cancel_sale(pk, user, reason):
     if not str(reason).strip(): raise ValidationError("Cancellation reason is required.")
     invoice=SalesInvoice.objects.select_for_update().get(pk=pk)
+    if invoice.status == "CANCELLED": return invoice
     if invoice.status not in {"POSTED", "PARTIALLY_PAID", "OVERDUE"}:
         raise ValidationError("Sales invoice cannot be cancelled.")
     originals=StockTransaction.objects.select_for_update().filter(reference_type="SalesInvoice",reference_id=invoice.id,is_reversal=False)
@@ -99,6 +100,7 @@ def post_return(pk,user):
 def cancel_return(pk,user,reason):
  if not str(reason).strip():raise ValidationError("Cancellation reason is required.")
  ret=SalesReturn.objects.select_for_update().get(pk=pk)
+ if ret.status=="CANCELLED":return ret
  if ret.status!="POSTED":raise ValidationError("Only a posted return can be cancelled.")
  originals=StockTransaction.objects.select_for_update().filter(reference_type="SalesReturn",reference_id=ret.id,is_reversal=False).order_by("-created_at")
  for original in originals:

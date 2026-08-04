@@ -24,8 +24,9 @@ def post_purchase(pk,user):
 def cancel_purchase(pk,user,reason):
  if not reason: raise ValidationError("Cancellation reason is required.")
  inv=PurchaseInvoice.objects.select_for_update().get(pk=pk)
+ if inv.status=="CANCELLED": return inv
  if inv.status not in ("POSTED","PARTIALLY_PAID","OVERDUE"): raise ValidationError("Purchase cannot be cancelled.")
- originals=StockTransaction.objects.filter(reference_type="PurchaseInvoice",reference_id=inv.id,is_reversal=False)
+ originals=StockTransaction.objects.select_for_update().filter(reference_type="PurchaseInvoice",reference_id=inv.id,is_reversal=False)
  for o in originals:
   if hasattr(o,"reversal"): raise ValidationError("Purchase was already reversed.")
   post_movement(item=o.raw_material,location=o.destination_location,quantity=o.quantity_in,direction="OUT",transaction_number=f"REV-{o.transaction_number}",transaction_type="PURCHASE_REVERSAL",reference_type="PurchaseInvoice",reference_id=inv.id,unit=o.unit,user=user,outgoing_unit_cost=o.unit_cost,reversal_of=o,is_reversal=True,audit_action="Reverse",audit_module="purchasing")
