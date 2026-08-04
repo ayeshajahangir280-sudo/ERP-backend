@@ -45,7 +45,12 @@ def post_movement(*,item,location,quantity,direction,transaction_number,transact
         balance=_locked_balance(item,location)
         previous=balance.current_quantity
         if direction=="OUT":
-            if quantity>previous:raise ValidationError(f"Insufficient stock. Available: {previous}; requested: {quantity}.")
+            if quantity>previous:
+                if reversal_of:
+                    field="raw_material" if item._meta.model_name=="rawmaterial" else "finished_product"
+                    blocking=StockTransaction.objects.filter(**{field:item},source_location=location,created_at__gt=reversal_of.created_at,is_reversal=False).order_by("-created_at").first()
+                    raise ValidationError({"message":"Cancellation is blocked because this stock was used downstream.","blocking_document":blocking.transaction_number if blocking else "Later stock movement","item":getattr(item,"name",str(item)),"location":getattr(location,"name",str(location)),"required_quantity":str(quantity),"available_quantity":str(previous),"required_reversal_order":"Cancel the blocking downstream document first, then retry this cancellation."})
+                raise ValidationError(f"Insufficient stock. Available: {previous}; requested: {quantity}.")
             unit_cost=Decimal(str(outgoing_unit_cost)).quantize(MONEY) if outgoing_unit_cost is not None else balance.average_unit_cost
             value=(quantity*unit_cost).quantize(MONEY,rounding=ROUND_HALF_UP)
             balance.current_quantity=(previous-quantity).quantize(QTY)

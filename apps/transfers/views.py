@@ -6,8 +6,10 @@ from .models import MaterialTransfer,FinishedGoodsTransfer
 from .serializers import MaterialTransferSerializer,FinishedGoodsTransferSerializer
 from .services import _transition,dispatch,receive,cancel_transfer
 from common.idempotency import idempotent_action
+from apps.inventory.document_services import generated_number
 class BaseTransferViewSet(AuditedModelViewSet):
  permission_classes=[HasModulePermission];module_name="stock_transfers"
+ def perform_create(self,serializer):serializer.save(transfer_number=generated_number("TRF"),created_by=self.request.user,updated_by=self.request.user)
  @action(detail=True,methods=["post"])
  def submit(self,request,pk=None):return Response(self.get_serializer(_transition(self.get_object(),{"DRAFT"},"SUBMITTED",request.user)).data)
  @action(detail=True,methods=["post"])

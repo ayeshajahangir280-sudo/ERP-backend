@@ -6,6 +6,7 @@ from .services import post_sale,cancel_sale,post_return,cancel_return
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from common.idempotency import idempotent_action
+from apps.inventory.document_services import generated_number
 class SalesInvoiceViewSet(AuditedModelViewSet):
  serializer_class=SalesInvoiceSerializer;permission_classes=[HasModulePermission,HasLocationAccess];module_name="sales"
  def get_queryset(self):
@@ -22,6 +23,7 @@ class SalesReturnViewSet(AuditedModelViewSet):
  def get_queryset(self):
   q=SalesReturn.objects.prefetch_related("items").order_by("-return_date");u=self.request.user
   return q if u.role=="ADMINISTRATOR" or u.can_access_all_locations or not u.assigned_location_id else q.filter(return_location=u.assigned_location)
+ def perform_create(self,serializer):serializer.save(return_number=generated_number("SRT"),created_by=self.request.user,updated_by=self.request.user)
  @action(detail=True,methods=["post"])
  def submit(self,request,pk=None):
   obj=self.get_object()

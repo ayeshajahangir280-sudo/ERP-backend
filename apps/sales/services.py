@@ -104,8 +104,7 @@ def cancel_return(pk,user,reason):
  if ret.status!="POSTED":raise ValidationError("Only a posted return can be cancelled.")
  originals=StockTransaction.objects.select_for_update().filter(reference_type="SalesReturn",reference_id=ret.id,is_reversal=False).order_by("-created_at")
  for original in originals:
-  try:post_movement(item=original.finished_product,location=original.destination_location,quantity=original.quantity_in,direction="OUT",transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_OUT",reference_type="SalesReturn",reference_id=ret.id,unit=original.unit,user=user,outgoing_unit_cost=original.unit_cost,remarks=f"Return cancellation: {reason}",reversal_of=original,is_reversal=True,audit_action="Cancel return",audit_module="sales_returns")
-  except ValidationError:raise ValidationError("Return cannot be cancelled because returned stock has been used downstream.")
+  post_movement(item=original.finished_product,location=original.destination_location,quantity=original.quantity_in,direction="OUT",transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_OUT",reference_type="SalesReturn",reference_id=ret.id,unit=original.unit,user=user,outgoing_unit_cost=original.unit_cost,remarks=f"Return cancellation: {reason}",reversal_of=original,is_reversal=True,audit_action="Cancel return",audit_module="sales_returns")
  CustomerLedger.objects.create(customer=ret.customer,transaction_date=timezone.localdate(),reference_type="SALES_RETURN_CANCELLATION",reference_id=ret.id,debit=ret.credit_total)
  invoice=SalesInvoice.objects.select_for_update().get(pk=ret.original_sales_invoice_id);invoice.outstanding_amount+=ret.credit_total;invoice.save(update_fields=["outstanding_amount"])
  ret.status="CANCELLED";ret.cancelled_at=timezone.now();ret.cancelled_by=user;ret.cancellation_reason=reason;ret.save();return ret

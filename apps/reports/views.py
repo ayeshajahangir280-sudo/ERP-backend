@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.db.models import Count,F,Q,Sum,Value
 from django.db.models.functions import Coalesce,TruncDay,TruncMonth
-from django.http import StreamingHttpResponse
+from django.http import FileResponse,StreamingHttpResponse
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -18,6 +18,8 @@ from apps.production.models import ProductionBatch,ProductionConsumption
 from apps.purchasing.models import PurchaseInvoice,PurchaseInvoiceItem,SupplierLedger
 from apps.sales.models import CustomerLedger,SalesInvoice,SalesInvoiceItem,SalesReturn
 from common.pagination import StandardPagination
+from .models import ReportExportJob
+from datetime import timedelta
 
 
 def _date_filters(request,field):
@@ -162,5 +164,42 @@ class DashboardView(APIView):
         top_products=list(SalesInvoiceItem.objects.filter(sales_invoice__in=sales).values("finished_product_id","finished_product__name").annotate(quantity=Sum("quantity"),sales=Sum("line_total")).order_by("-quantity")[:10])
         top_customers=list(sales.values("customer_id","customer__name").annotate(sales=Sum("grand_total")).order_by("-sales")[:10])
         pending=WastageDocument.objects.filter(status__in=["SUBMITTED","APPROVED"]).count()+StockAdjustment.objects.filter(status__in=["SUBMITTED","APPROVED"]).count()
-        data={"total_purchases":purchases.aggregate(total=Coalesce(Sum("grand_total"),Value(Decimal("0"))))["total"],"production_today":production.filter(manufacturing_date=today).aggregate(total=Coalesce(Sum("actual_produced_quantity"),Value(Decimal("0"))))["total"],"finished_goods_quantity":balances.filter(finished_product__isnull=False).aggregate(total=Coalesce(Sum("current_quantity"),Value(Decimal("0"))))["total"],"daily_sales":sales.filter(invoice_date=today).aggregate(total=Coalesce(Sum("grand_total"),Value(Decimal("0"))))["total"],"monthly_sales":sales.filter(invoice_date__year=today.year,invoice_date__month=today.month).aggregate(total=Coalesce(Sum("grand_total"),Value(Decimal("0"))))["total"],"inventory_value":balances.aggregate(total=Coalesce(Sum("inventory_value"),Value(Decimal("0"))))["total"],"receivables":sales.aggregate(total=Coalesce(Sum("outstanding_amount"),Value(Decimal("0"))))["total"],"payables":purchases.aggregate(total=Coalesce(Sum("outstanding_amount"),Value(Decimal("0"))))["total"],"low_stock_raw_materials":balances.filter(raw_material__isnull=False,current_quantity__lte=F("raw_material__reorder_level")).count(),"low_stock_finished_goods":balances.filter(finished_product__isnull=False,current_quantity__lte=F("finished_product__minimum_stock")).count(),"pending_approvals":pending,"reconciliation_discrepancies":len(reconciliation_discrepancies()),"top_products":top_products,"top_customers":top_customers}
+        sales_items=SalesInvoiceItem.objects.filter(sales_invoice__in=sales)
+        low_fg=list(balances.filter(finished_product__isnull=False,current_quantity__lte=F("finished_product__minimum_stock")).values("finished_product_id","finished_product__name","location_id","location__name","current_quantity","finished_product__minimum_stock")[:50])
+        data={"total_purchases":purchases.aggregate(total=Coalesce(Sum("grand_total"),Value(Decimal("0"))))["total"],"production_today":production.filter(manufacturing_date=today).aggregate(total=Coalesce(Sum("actual_produced_quantity"),Value(Decimal("0"))))["total"],"finished_goods_quantity":balances.filter(finished_product__isnull=False).aggregate(total=Coalesce(Sum("current_quantity"),Value(Decimal("0"))))["total"],"daily_sales":sales.filter(invoice_date=today).aggregate(total=Coalesce(Sum("grand_total"),Value(Decimal("0"))))["total"],"monthly_sales":sales.filter(invoice_date__year=today.year,invoice_date__month=today.month).aggregate(total=Coalesce(Sum("grand_total"),Value(Decimal("0"))))["total"],"inventory_value":balances.aggregate(total=Coalesce(Sum("inventory_value"),Value(Decimal("0"))))["total"],"receivables":sales.aggregate(total=Coalesce(Sum("outstanding_amount"),Value(Decimal("0"))))["total"],"payables":purchases.aggregate(total=Coalesce(Sum("outstanding_amount"),Value(Decimal("0"))))["total"],"low_stock_raw_materials":balances.filter(raw_material__isnull=False,current_quantity__lte=F("raw_material__reorder_level")).count(),"low_stock_finished_goods":len(low_fg),"pending_approvals":pending,"reconciliation_discrepancies":len(reconciliation_discrepancies()),"top_products":top_products,"top_customers":top_customers,"low_stock_finished_goods_details":low_fg,"daily_trend":list(sales.values("invoice_date").annotate(sales=Sum("grand_total")).order_by("invoice_date")),"monthly_trend":list(sales.annotate(period=TruncMonth("invoice_date")).values("period").annotate(sales=Sum("grand_total")).order_by("period")),"branch_comparison":list(sales.values("sales_location_id","sales_location__name").annotate(sales=Sum("grand_total")).order_by("-sales")),"gross_profit":sales.aggregate(total=Coalesce(Sum("gross_profit"),Value(Decimal("0"))))["total"],"gross_margin":sales_items.aggregate(sales=Coalesce(Sum("line_total"),Value(Decimal("0"))),profit=Coalesce(Sum("gross_profit"),Value(Decimal("0")))) ,"returns_total":SalesReturn.objects.filter(status="POSTED",**({"return_location_id":location} if location else {})).aggregate(total=Coalesce(Sum("credit_total"),Value(Decimal("0"))))["total"],"wastage_total":WastageDocument.objects.filter(status="POSTED",**({"location_id":location} if location else {})).aggregate(total=Coalesce(Sum("total_value"),Value(Decimal("0"))))["total"],"adjustment_total":StockAdjustment.objects.filter(status="POSTED",**({"location_id":location} if location else {})).aggregate(total=Coalesce(Sum("total_value"),Value(Decimal("0"))))["total"]}
+        gross=data.pop("gross_margin");data["gross_margin_percentage"]=(gross["profit"]/gross["sales"]*Decimal("100")) if gross["sales"] else Decimal("0")
         return Response(data)
+
+class ReportExportJobView(APIView):
+    permission_classes=[HasModulePermission];module_name="reports"
+    def get(self,request,pk=None):
+        qs=ReportExportJob.objects.filter(requested_by=request.user)
+        if pk:
+            job=qs.get(pk=pk);return Response(self.serialize(job))
+        return Response([self.serialize(job) for job in qs[:100]])
+    def post(self,request,pk=None):
+        from .exports import REPORTS
+        if pk:
+            job=ReportExportJob.objects.filter(requested_by=request.user).get(pk=pk)
+            if job.status!="FAILED":return Response({"detail":"Only failed exports can be retried."},status=409)
+            job.status="PENDING";job.error="";job.save(update_fields=["status","error"]);return Response(self.serialize(job))
+        report=str(request.data.get("report_name","")).strip();output=str(request.data.get("format","XLSX")).upper()
+        if report not in REPORTS:return Response({"detail":"Unsupported report."},status=400)
+        if output not in {"CSV","XLSX"}:return Response({"detail":"Format must be CSV or XLSX."},status=400)
+        filters={str(k):str(v) for k,v in dict(request.data.get("filters") or {}).items() if v not in (None,"")}
+        requested=filters.get("location");_location_id(SimpleRequest(request.user,filters))
+        job=ReportExportJob.objects.create(requested_by=request.user,report_name=report,output_format=output,filters=filters,expires_at=timezone.now()+timedelta(days=2))
+        return Response(self.serialize(job),status=202)
+    @staticmethod
+    def serialize(job):return {"id":job.id,"report_name":job.report_name,"format":job.output_format,"filters":job.filters,"status":job.status,"attempts":job.attempts,"error":job.error,"created_at":job.created_at,"completed_at":job.completed_at,"expires_at":job.expires_at,"download_available":bool(job.file and job.status=="COMPLETED")}
+
+class SimpleRequest:
+    def __init__(self,user,query_params):self.user=user;self.query_params=query_params
+
+class ReportExportDownloadView(APIView):
+    permission_classes=[HasModulePermission];module_name="reports"
+    def get(self,request,pk):
+        job=ReportExportJob.objects.filter(requested_by=request.user).get(pk=pk)
+        if job.status!="COMPLETED" or not job.file:return Response({"detail":"Export is not available."},status=409)
+        if job.expires_at<=timezone.now():return Response({"detail":"Export has expired."},status=410)
+        return FileResponse(job.file.open("rb"),as_attachment=True,filename=job.file.name.rsplit("/",1)[-1])

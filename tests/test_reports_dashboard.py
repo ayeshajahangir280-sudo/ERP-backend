@@ -1,5 +1,6 @@
 from decimal import Decimal
-from django.test import TestCase
+import tempfile
+from django.test import TestCase,override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 from apps.accounts.models import User
@@ -8,6 +9,8 @@ from apps.locations.models import Location
 from apps.master_data.models import Customer,FinishedProduct,ItemCategory,Supplier,UnitOfMeasurement
 from apps.purchasing.models import PurchaseInvoice,SupplierLedger
 from apps.sales.models import CustomerLedger,SalesInvoice,SalesInvoiceItem
+from apps.reports.exports import process_export
+from apps.reports.models import ReportExportJob
 
 class ReportsDashboardTests(TestCase):
  def setUp(self):
@@ -32,8 +35,16 @@ class ReportsDashboardTests(TestCase):
   customer=self.client.get("/api/reports/customer-outstanding/").data["results"][0];supplier=self.client.get("/api/reports/supplier-outstanding/").data["results"][0]
   self.assertEqual(customer["outstanding"],Decimal("55"));self.assertEqual(supplier["outstanding"],Decimal("47"))
  def test_dashboard_uses_backend_aggregates(self):
-  response=self.client.get("/api/dashboard/");self.assertEqual(response.status_code,200);self.assertEqual(response.data["total_purchases"],Decimal("40"));self.assertEqual(response.data["daily_sales"],Decimal("50"));self.assertEqual(response.data["inventory_value"],Decimal("20"));self.assertEqual(response.data["receivables"],Decimal("30"));self.assertEqual(response.data["payables"],Decimal("25"))
+  response=self.client.get("/api/dashboard/");self.assertEqual(response.status_code,200);self.assertEqual(response.data["total_purchases"],Decimal("40"));self.assertEqual(response.data["daily_sales"],Decimal("50"));self.assertEqual(response.data["inventory_value"],Decimal("20"));self.assertEqual(response.data["receivables"],Decimal("30"));self.assertEqual(response.data["payables"],Decimal("25"));self.assertEqual(response.data["gross_profit"],Decimal("30"));self.assertEqual(response.data["top_products"][0]["sales"],Decimal("50"));self.assertEqual(response.data["top_customers"][0]["sales"],Decimal("50"))
+ def test_dashboard_reconciles_with_purchase_sales_and_inventory_reports(self):
+  dashboard=self.client.get("/api/dashboard/").data;purchase_rows=self.client.get("/api/reports/purchase-register/").data["results"];sales_rows=self.client.get("/api/reports/sales-register/").data["results"];inventory_rows=self.client.get("/api/reports/inventory-valuation/").data["results"]
+  self.assertEqual(dashboard["total_purchases"],sum((row["grand_total"] for row in purchase_rows),Decimal("0")));self.assertEqual(dashboard["daily_sales"],sum((row["grand_total"] for row in sales_rows),Decimal("0")));self.assertEqual(dashboard["inventory_value"],sum((row["inventory_value"] for row in inventory_rows),Decimal("0")))
  def test_location_permission_rejects_another_location(self):
   restricted=User.objects.create_user("restricted-report@test.local","password",full_name="Restricted",employee_code="REPORT-R",role="MANAGER",assigned_location=self.location,allowed_modules=["reports"])
   other=Location.objects.create(code="REP-O",name="Other",location_type="SHOP");self.client.force_authenticate(restricted)
   response=self.client.get(f"/api/reports/finished-goods-stock/?location={other.id}");self.assertEqual(response.status_code,400)
+ @override_settings(MEDIA_ROOT=tempfile.gettempdir())
+ def test_background_excel_export_is_owner_scoped_and_downloadable(self):
+  response=self.client.post("/api/report-exports/",{"report_name":"sales-register","format":"XLSX","filters":{}},format="json");self.assertEqual(response.status_code,202)
+  job=ReportExportJob.objects.get(pk=response.data["id"]);process_export(job.id);job.refresh_from_db();self.assertEqual(job.status,"COMPLETED");self.assertTrue(job.file)
+  download=self.client.get(f"/api/report-exports/{job.id}/download/");self.assertEqual(download.status_code,200);b"".join(download.streaming_content);download.close();job.file.delete(save=False)

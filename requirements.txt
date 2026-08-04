@@ -11,3 +11,4 @@ gunicorn>=23,<24
 celery>=5.4,<6
 redis>=5,<6
 whitenoise>=6.7,<7
+openpyxl>=3.1,<4

@@ -17,6 +17,10 @@ In Dokploy, set `DATABASE_URL` to the PostgreSQL service's internal hostname, no
 
 Use Gunicorn with bounded request timeouts and multiple workers. Run the export/idempotency cleanup commands from a scheduled worker. Put a connection pool such as PgBouncer in transaction mode between the application and PostgreSQL when connection concurrency requires it.
 
+Run a separate Dokploy worker service from the same image with `python manage.py process_report_exports`. Schedule `python manage.py cleanup_report_exports` and `python manage.py cleanup_idempotency_records` daily. Export files expire after 48 hours. Monitor failed jobs and retry them through `POST /api/report-exports/<id>/`.
+
+`erp-erp-mscnom` is resolvable only between services on the Dokploy internal network. A Dokploy application database URL may use `postgresql://USER:PASSWORD@erp-erp-mscnom:5432/DATABASE`; developer machines and GitHub Actions must not use that hostname. CI uses its own PostgreSQL 17 service on `127.0.0.1` with clearly test-only database names. Staging must use a separate database and credentials from production.
+
 ## Backup and restore
 
 Take daily custom-format backups with `pg_dump -Fc`, retain daily copies for 14 days and monthly copies for 12 months, encrypt them, and copy them off-server. Test restoration monthly.

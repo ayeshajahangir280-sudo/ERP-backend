@@ -1,5 +1,9 @@
 name: PostgreSQL query plans
 on:
+  push:
+    branches: [main]
+    paths: ["apps/**", "common/**", "config/**", "requirements.txt", ".github/workflows/query-plans.yml"]
+  pull_request:
   workflow_dispatch:
 jobs:
   plans:
@@ -20,7 +24,7 @@ jobs:
         with: { python-version: "3.13", cache: pip }
       - run: pip install -r requirements.txt
       - run: python manage.py migrate --noinput
-      - run: python manage.py seed_demo_data
+      - run: python manage.py seed_performance_data --products 100 --materials 100 --customers 500 --suppliers 100 --locations 10 --sales 5000 --purchases 2000 --ledger-entries 20000
       - run: python manage.py capture_query_plans --output query-plans.txt
       - uses: actions/upload-artifact@v4
         with: { name: sanitized-postgresql-query-plans, path: query-plans.txt, retention-days: 14 }

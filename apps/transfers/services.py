@@ -70,8 +70,5 @@ def cancel_transfer(transfer,user,reason):
   else:
    location=original.source_location;direction="IN";quantity=original.quantity_out
    incoming_cost=original.unit_cost;outgoing_cost=None
-  try:
-   post_movement(item=item,location=location,quantity=quantity,direction=direction,transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_OUT" if direction=="OUT" else "STOCK_ADJUSTMENT_IN",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=original.unit,user=user,incoming_unit_cost=incoming_cost,outgoing_unit_cost=outgoing_cost,remarks=f"Transfer cancellation: {reason}",reversal_of=original,is_reversal=True,audit_action="Cancel",audit_module="transfers")
-  except ValidationError:
-   raise ValidationError("Transfer cannot be cancelled because its stock has been used downstream. Reverse the downstream documents first.")
+  post_movement(item=item,location=location,quantity=quantity,direction=direction,transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_OUT" if direction=="OUT" else "STOCK_ADJUSTMENT_IN",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=original.unit,user=user,incoming_unit_cost=incoming_cost,outgoing_unit_cost=outgoing_cost,remarks=f"Transfer cancellation: {reason}",reversal_of=original,is_reversal=True,audit_action="Cancel",audit_module="transfers")
  transfer.status="CANCELLED";transfer.cancelled_at=timezone.now();transfer.cancelled_by=user;transfer.cancellation_reason=reason;transfer.save();return transfer

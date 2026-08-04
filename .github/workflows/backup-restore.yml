@@ -1,5 +1,9 @@
 name: PostgreSQL backup restore verification
 on:
+  push:
+    branches: [main]
+    paths: ["apps/**/migrations/**", "apps/**/models.py", "config/**", ".github/workflows/backup-restore.yml"]
+  pull_request:
   workflow_dispatch:
 jobs:
   verify:
@@ -20,11 +24,13 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13", cache: pip }
       - run: pip install -r requirements.txt
-      - run: python manage.py migrate --noinput && python manage.py seed_demo_data
+      - run: python manage.py migrate --noinput && python manage.py seed_performance_data --products 10 --materials 10 --customers 20 --suppliers 10 --locations 3 --sales 100 --purchases 50 --ledger-entries 500
       - run: python manage.py database_fingerprint --output before.json
+      - run: python manage.py verify_reconciliation
       - run: pg_dump -Fc -h 127.0.0.1 -U postgres -d bakeryflow_backup -f backup.dump
       - run: createdb -h 127.0.0.1 -U postgres bakeryflow_restored && pg_restore -h 127.0.0.1 -U postgres -d bakeryflow_restored --no-owner backup.dump
       - run: DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored python manage.py check
       - run: DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored python manage.py migrate --check
       - run: DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored python manage.py database_fingerprint --output after.json
+      - run: DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/bakeryflow_restored python manage.py verify_reconciliation
       - run: diff -u before.json after.json

@@ -13,7 +13,7 @@ class SalesReturnItemSerializer(serializers.ModelSerializer):
  class Meta:model=SalesReturnItem;exclude=("sales_return",);read_only_fields=("finished_product","batch","sold_quantity","previously_returned_quantity","unit_price","credit_amount")
 class SalesReturnSerializer(serializers.ModelSerializer):
  items=SalesReturnItemSerializer(many=True)
- class Meta:model=SalesReturn;fields="__all__";read_only_fields=("customer","status","subtotal","vat_total","credit_total","posted_at","posted_by","cancelled_at","cancelled_by","created_by","updated_by")
+ class Meta:model=SalesReturn;fields="__all__";read_only_fields=("return_number","customer","status","subtotal","vat_total","credit_total","posted_at","posted_by","cancelled_at","cancelled_by","created_by","updated_by")
  def create(self,data):
   items=data.pop("items",[])
   if not items:raise serializers.ValidationError("At least one return line is required.")

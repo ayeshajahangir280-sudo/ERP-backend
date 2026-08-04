@@ -1,5 +1,8 @@
 name: PostgreSQL load smoke
 on:
+  push:
+    branches: [main]
+    paths: ["apps/**", "common/**", "config/**", ".github/workflows/load-smoke.yml"]
   workflow_dispatch:
   pull_request:
 jobs:
@@ -21,6 +24,7 @@ jobs:
         with: { python-version: "3.13", cache: pip }
       - run: pip install -r requirements.txt
       - run: python manage.py migrate --noinput
+      - run: python manage.py seed_performance_data --products 20 --materials 20 --customers 50 --suppliers 20 --locations 4 --sales 250 --purchases 100 --ledger-entries 1000
       - run: python manage.py load_smoke --users 4 --iterations 10 --output load-smoke.json
       - uses: actions/upload-artifact@v4
         with: { name: load-smoke-results, path: load-smoke.json, retention-days: 14 }
