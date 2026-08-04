@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
-from .permissions import IsAdministrator
+from .permissions import HasModulePermission
 from .serializers import LoginSerializer,UserSerializer,UserAdminSerializer,ResetUserPasswordSerializer,ChangePasswordSerializer
 from drf_spectacular.utils import OpenApiTypes,extend_schema,inline_serializer
 from rest_framework import serializers
@@ -25,7 +25,8 @@ class ChangePasswordView(generics.GenericAPIView):
 class UserAdminViewSet(viewsets.ModelViewSet):
     queryset=User.objects.order_by("full_name","email")
     serializer_class=UserAdminSerializer
-    permission_classes=[IsAdministrator]
+    permission_classes=[HasModulePermission]
+    module_name="users"
     @action(detail=True,methods=["post"],url_path="reset-password")
     def reset_password(self,request,pk=None):
         serializer=ResetUserPasswordSerializer(data=request.data); serializer.is_valid(raise_exception=True)
