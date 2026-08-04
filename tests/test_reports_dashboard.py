@@ -47,4 +47,4 @@ class ReportsDashboardTests(TestCase):
  def test_background_excel_export_is_owner_scoped_and_downloadable(self):
   response=self.client.post("/api/report-exports/",{"report_name":"sales-register","format":"XLSX","filters":{}},format="json");self.assertEqual(response.status_code,202)
   job=ReportExportJob.objects.get(pk=response.data["id"]);process_export(job.id);job.refresh_from_db();self.assertEqual(job.status,"COMPLETED");self.assertTrue(job.file)
-  download=self.client.get(f"/api/report-exports/{job.id}/download/");self.assertEqual(download.status_code,200);b"".join(download.streaming_content);download.close();job.file.delete(save=False)
+  download=self.client.get(f"/api/report-exports/{job.id}/download/");self.assertEqual(download.status_code,200);b"".join(download.streaming_content);job.file.delete(save=False)
