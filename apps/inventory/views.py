@@ -46,10 +46,9 @@ class StockTransactionViewSet(ReadOnlyModelViewSet):
    product=FinishedProduct.objects.get(pk=request.data.get("finished_product"))
    location=Location.objects.get(pk=request.data.get("location"),is_active=True)
    batch=str(request.data.get("batch","")).strip()
-   reason=str(request.data.get("reason","")).strip()
-   if len(reason)<3: raise ValueError
+   reason=str(request.data.get("reason","")).strip() or "Removed from finished-goods inventory"
   except (FinishedProduct.DoesNotExist,Location.DoesNotExist,ValueError,TypeError):
-   return Response({"success":False,"message":"A valid product, location and reason are required."},status=status.HTTP_400_BAD_REQUEST)
+   return Response({"success":False,"message":"A valid product and location are required."},status=status.HTTP_400_BAD_REQUEST)
   transactions=StockTransaction.objects.filter(finished_product=product,batch=batch).filter(
    models.Q(destination_location=location)|models.Q(source_location=location)
   )
