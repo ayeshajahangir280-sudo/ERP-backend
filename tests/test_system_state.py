@@ -1,8 +1,7 @@
 from rest_framework.test import APIClient
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from apps.accounts.models import User
-from apps.locations.models import Location
 from apps.system_state.models import ERPState
 
 
@@ -48,65 +47,3 @@ class ERPStateTests(TestCase):
             response=self.client.put("/api/erp-state/",{"data":{"uiPreferences":preferences},"revision":0},format="json")
             self.assertEqual(response.status_code,400)
         self.assertFalse(ERPState.objects.exists())
-
-    @override_settings(ALLOW_DELETE_ALL_DATA=True)
-    def test_delete_all_preserves_only_current_admin_and_empty_snapshot(self):
-        User.objects.create_user(
-            "other@test.local", "password123", full_name="Other", employee_code="OTHER-1", role="SALES"
-        )
-        Location.objects.create(code="SHOP-1", name="Shop", location_type="SHOP")
-        empty = {"locations": [], "users": [{"id": str(self.user.id)}], "counters": {}}
-
-        response = self.client.post(
-            "/api/system/delete-all-data/",
-            {"confirmation": "DELETE ALL DATA", "data": empty},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(list(User.objects.values_list("id", flat=True)), [self.user.id])
-        self.assertFalse(Location.objects.exists())
-        self.assertEqual(self.client.get("/api/erp-state/").json()["data"], {})
-
-    def test_delete_all_is_disabled_by_default(self):
-        response = self.client.post(
-            "/api/system/delete-all-data/",
-            {"confirmation": "DELETE ALL DATA", "data": {}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, 403)
-
-    @override_settings(ALLOW_DELETE_ALL_DATA=True)
-    def test_delete_all_requires_exact_confirmation(self):
-        for confirmation in (None, "delete all data", "DELETE ALL"):
-            response = self.client.post(
-                "/api/system/delete-all-data/",
-                {"confirmation": confirmation, "data": {}},
-                format="json",
-            )
-            self.assertEqual(response.status_code, 400)
-
-    @override_settings(ALLOW_DELETE_ALL_DATA=True)
-    def test_delete_all_rejects_anonymous_and_normal_users(self):
-        anonymous = APIClient()
-        response = anonymous.post(
-            "/api/system/delete-all-data/",
-            {"confirmation": "DELETE ALL DATA", "data": {}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, 401)
-
-        normal_user = User.objects.create_user(
-            "user@test.local",
-            "password123",
-            full_name="User",
-            employee_code="USER-STATE",
-            role="SALES",
-        )
-        self.client.force_authenticate(normal_user)
-        response = self.client.post(
-            "/api/system/delete-all-data/",
-            {"confirmation": "DELETE ALL DATA", "data": {}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, 403)

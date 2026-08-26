@@ -76,7 +76,6 @@ SECURE_REDIRECT_EXEMPT=[r"^api/health/?$"]
 SECURE_HSTS_SECONDS=env.int("SECURE_HSTS_SECONDS",default=31536000 if not DEBUG else 0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS=env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS",default=False)
 SECURE_HSTS_PRELOAD=env.bool("SECURE_HSTS_PRELOAD",default=False)
-ALLOW_DELETE_ALL_DATA=env.bool("ALLOW_DELETE_ALL_DATA",default=False)
 REPORT_XLSX_MAX_ROWS=env.int("REPORT_XLSX_MAX_ROWS",default=10000)
 REPORT_EXPORT_SPOOL_MAX_BYTES=env.int("REPORT_EXPORT_SPOOL_MAX_BYTES",default=5*1024*1024)
 STORAGES={"default":{"BACKEND":"django.core.files.storage.FileSystemStorage"},"staticfiles":{"BACKEND":"whitenoise.storage.CompressedManifestStaticFilesStorage"}}

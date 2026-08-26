@@ -15,14 +15,11 @@ SECURE_SSL_REDIRECT=True
 SECURE_HSTS_SECONDS=31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS=False
 SECURE_HSTS_PRELOAD=False
-ALLOW_DELETE_ALL_DATA=False
 ```
 
 Keep Traefik's HTTP-to-HTTPS entrypoint redirect enabled as the first line of enforcement. Django's redirect is defense in depth and will not loop when Traefik sends the forwarded-protocol header correctly.
 
 The conservative `False` values for HSTS subdomains and preload are intentional. This deployment has no verified inventory proving that every current and future subdomain is HTTPS-only, and browser preload is long-lived and difficult to reverse. Consequently, Django deploy checks W005 and W021 are expected until domain ownership and TLS coverage are verified. Only then set `SECURE_HSTS_INCLUDE_SUBDOMAINS=True`; request preload and set `SECURE_HSTS_PRELOAD=True` only after satisfying the browser preload requirements.
-
-The delete-all endpoint remains unavailable in production while `ALLOW_DELETE_ALL_DATA=False`. A controlled maintenance deployment may enable it temporarily, but the endpoint still requires an authenticated Administrator and the exact confirmation text `DELETE ALL DATA`; disable it again immediately afterward.
 
 Test-account provisioning is disabled by default with `CREATE_TEST_ACCOUNT=False`. Production must retain that value. For an explicitly authorized temporary test environment only, set `CREATE_TEST_ACCOUNT=True` and provide `TEST_ACCOUNT_PASSWORD` as a secret; startup and management commands never print the password.
 

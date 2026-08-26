@@ -1,11 +1,6 @@
 from django.db import transaction
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework import status
-from apps.accounts.permissions import IsAdministrator
-from django.apps import apps
-from common.viewsets import hard_delete_instance
-from django.conf import settings
 from drf_spectacular.utils import OpenApiTypes,extend_schema,inline_serializer
 from rest_framework import serializers
 
@@ -66,35 +61,3 @@ class ERPStateView(APIView):
         state.updated_by = request.user
         state.save(update_fields=["data", "revision", "updated_by", "updated_at"])
         return Response({"revision": state.revision, "updated_at": state.updated_at})
-
-
-class DeleteAllDataView(APIView):
-    permission_classes = [IsAdministrator]
-
-    @transaction.atomic
-    @extend_schema(operation_id="system_delete_all_data",request=inline_serializer("DeleteAllDataRequest",fields={"confirmation":serializers.CharField(),"data":serializers.JSONField()}),responses={200:OpenApiTypes.OBJECT,403:OpenApiTypes.OBJECT})
-    def post(self, request):
-        """Remove all ERP business data while preserving the signed-in admin."""
-        if not settings.ALLOW_DELETE_ALL_DATA:
-            return Response({"detail":"Delete-all-data is disabled on this deployment."},status=status.HTTP_403_FORBIDDEN)
-        if request.data.get("confirmation")!="DELETE ALL DATA":
-            return Response({"detail":"Set confirmation to DELETE ALL DATA to continue."},status=status.HTTP_400_BAD_REQUEST)
-        empty_state = request.data.get("data")
-        if not isinstance(empty_state, dict):
-            return Response({"detail": "data must be a JSON object"}, status=status.HTTP_400_BAD_REQUEST)
-
-        keep_user = request.user
-        app_labels = {
-            "locations", "master_data", "inventory", "purchasing", "recipes",
-            "production", "transfers", "sales", "payments", "audit", "reports",
-            "system_state",
-        }
-        seen = set()
-        for model in (m for m in apps.get_models() if m._meta.app_label in app_labels):
-            for instance in list(model._base_manager.all()):
-                hard_delete_instance(instance, seen)
-
-        keep_user.__class__.objects.exclude(pk=keep_user.pk).delete()
-        safe_state={key:empty_state[key] for key in ERP_STATE_ALLOWED_KEYS if key in empty_state}
-        ERPState.objects.create(key="default", data=safe_state, revision=1, updated_by=keep_user)
-        return Response({"success": True, "message": "All system data was deleted. The main administrator was preserved."})
