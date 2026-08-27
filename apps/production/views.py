@@ -11,7 +11,7 @@ class ProductionBatchViewSet(AuditedModelViewSet):
  @action(detail=True,methods=["post"])
  @idempotent_action
  def complete(self,request,pk=None):
-  return Response({"success":True,"data":self.get_serializer(complete_production(pk,request.user,request.data.get("actual_quantity"))).data})
+  return Response({"success":True,"data":self.get_serializer(complete_production(pk,request.user,request.data.get("actual_quantity"),request.data.get("materials",[]))).data})
  @action(detail=True,methods=["post"])
  @idempotent_action
  def cancel(self,request,pk=None):

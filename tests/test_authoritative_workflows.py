@@ -42,6 +42,13 @@ class AuthoritativeWorkflowTests(TestCase):
         self.assertEqual(get_available_stock(self.material,self.production_location),Decimal("15.60"))
         self.assertEqual(get_available_stock(self.product,self.shop),Decimal("8"))
 
+    def test_production_consumes_manual_actual_material_quantity(self):
+        batch=ProductionBatch.objects.create(production_number="PRD-MAT",finished_product=self.product,recipe=self.recipe,planned_quantity=Decimal("10"),production_location=self.production_location,finished_goods_destination=self.shop,batch_number="MAT",manufacturing_date=timezone.localdate())
+        complete_production(batch.id,self.user,actual_quantity=Decimal("8"),materials=[{"raw_material":str(self.material.id),"actual_consumed_quantity":"5"}])
+        self.assertEqual(get_available_stock(self.material,self.production_location),Decimal("15.000"))
+        consumption=StockTransaction.objects.get(transaction_number__startswith="PRD-MAT-CON")
+        self.assertEqual(consumption.quantity_out,Decimal("5.000"))
+
     def test_sale_uses_combined_average_cost_and_cancellation_restores_stock(self):
         for number,quantity,cost in [("FG-A","10","2"),("FG-B","10","4")]:
             StockTransaction.objects.create(transaction_number=number,transaction_date=timezone.now(),transaction_type="PRODUCTION_OUTPUT",reference_type="ProductionBatch",reference_id=self.product.id,finished_product=self.product,destination_location=self.shop,quantity_in=Decimal(quantity),unit=self.unit,unit_cost=Decimal(cost),total_value=Decimal(quantity)*Decimal(cost),created_by=self.user)
