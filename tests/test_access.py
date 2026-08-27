@@ -3,6 +3,7 @@ from django.db.utils import OperationalError
 from unittest.mock import patch
 from rest_framework.test import APIClient
 from apps.accounts.models import User
+from apps.accounts.serializers import UserAdminSerializer
 from apps.locations.models import Location
 class AccessTests(TestCase):
  def setUp(self):
@@ -13,6 +14,20 @@ class AccessTests(TestCase):
  def test_unassigned_module_denied(self):self.assertEqual(self.client.get("/api/purchases/").status_code,403)
  def test_me_exposes_assignments(self):
   data=self.client.get("/api/auth/me/").json()["data"];self.assertEqual(data["allowed_modules"],["sales"]);self.assertEqual(data["assigned_location"],str(self.shop1.id))
+
+ def test_created_user_without_modules_gets_role_defaults(self):
+  serializer=UserAdminSerializer(data={"email":"sales-new@test.local","password":"password123","full_name":"Sales New","employee_code":"SNEW","role":"SALES","is_active":True})
+  self.assertTrue(serializer.is_valid(),serializer.errors)
+  user=serializer.save()
+  self.assertIn("sales",user.allowed_modules)
+  self.assertIn("dashboard",user.allowed_modules)
+
+ def test_login_accepts_employee_code_username(self):
+  user=User.objects.create_user("worker@test.local","password123",full_name="Worker",employee_code="WORKER1",role="SALES",allowed_modules=["sales"])
+  client=APIClient()
+  response=client.post("/api/auth/login/",{"email":"worker1","password":"password123"},format="json")
+  self.assertEqual(response.status_code,200,response.content)
+  self.assertEqual(response.json()["user"]["id"],str(user.id))
 
  def test_health_reports_connected_database(self):
   response=self.client.get("/api/health/")
