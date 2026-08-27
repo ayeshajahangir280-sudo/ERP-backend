@@ -18,7 +18,7 @@ def _transition(obj,allowed,status,user,field=None):
 @transaction.atomic
 def dispatch(transfer,user,finished=False):
  transfer=transfer.__class__.objects.select_for_update().prefetch_related("items").get(pk=transfer.pk)
- if transfer.status not in ({"APPROVED"} if finished else {"APPROVED","SUBMITTED"}):raise ValidationError("Transfer is not ready for dispatch.")
+ if transfer.status not in ({"DRAFT","APPROVED"} if finished else {"DRAFT","APPROVED","SUBMITTED"}):raise ValidationError("Transfer is not ready for dispatch.")
  transit=_virtual("IN_TRANSIT")
  for line in transfer.items.all():
   qty=line.requested_quantity if finished else line.quantity
@@ -52,6 +52,16 @@ def receive(transfer,user,lines,finished=False):
  if hasattr(transfer,"received_by"):transfer.received_by=user
  if hasattr(transfer,"received_date"):transfer.received_date=timezone.localdate()
  transfer.save();return transfer
+
+@transaction.atomic
+def complete_immediate_transfer(transfer,user,finished=False):
+ transfer=dispatch(transfer,user,finished)
+ transfer=transfer.__class__.objects.prefetch_related("items").get(pk=transfer.pk)
+ lines=[
+  {"id":str(line.id),"received_quantity":line.dispatched_quantity,"damaged_quantity":0}
+  for line in transfer.items.all()
+ ]
+ return receive(transfer,user,lines,finished)
 
 @transaction.atomic
 def cancel_transfer(transfer,user,reason):

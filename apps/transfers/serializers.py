@@ -1,6 +1,7 @@
 from django.db import transaction
 from rest_framework import serializers
 from .models import MaterialTransfer,MaterialTransferItem,FinishedGoodsTransfer,FinishedGoodsTransferItem
+from .services import complete_immediate_transfer
 
 class MaterialTransferItemSerializer(serializers.ModelSerializer):
  class Meta:model=MaterialTransferItem;exclude=("transfer",);read_only_fields=("dispatched_quantity","received_quantity","damaged_quantity")
@@ -13,7 +14,7 @@ class MaterialTransferSerializer(serializers.ModelSerializer):
   if not items:raise serializers.ValidationError("At least one transfer item is required.")
   obj=MaterialTransfer.objects.create(requested_by=self.context["request"].user,**data)
   for item in items:MaterialTransferItem.objects.create(transfer=obj,**item)
-  return obj
+  return complete_immediate_transfer(obj,self.context["request"].user,False)
  @transaction.atomic
  def update(self,instance,data):
   items=data.pop("items",None);obj=super().update(instance,data)
@@ -33,7 +34,7 @@ class FinishedGoodsTransferSerializer(serializers.ModelSerializer):
   obj=FinishedGoodsTransfer.objects.create(**data)
   for item in items:
    item.pop("batch",None);FinishedGoodsTransferItem.objects.create(transfer=obj,batch="",**item)
-  return obj
+  return complete_immediate_transfer(obj,self.context["request"].user,True)
  @transaction.atomic
  def update(self,instance,data):
   items=data.pop("items",None);obj=super().update(instance,data)
