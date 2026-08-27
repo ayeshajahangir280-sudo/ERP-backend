@@ -21,7 +21,7 @@ def complete_production(pk, user, actual_quantity=None):
     if output <= 0:
         raise ValidationError("Actual produced quantity must be positive.")
     recipe = production.recipe
-    scale = production.planned_quantity / recipe.standard_output_quantity
+    scale = output / recipe.standard_output_quantity
     requirements = []
     for line in recipe.items.select_related("raw_material", "unit"):
         required = line.required_quantity * scale * (Decimal("1") + line.wastage_percentage / Decimal("100"))
