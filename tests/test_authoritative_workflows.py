@@ -49,6 +49,14 @@ class AuthoritativeWorkflowTests(TestCase):
         consumption=StockTransaction.objects.get(transaction_number__startswith="PRD-MAT-CON")
         self.assertEqual(consumption.quantity_out,Decimal("5.000"))
 
+    def test_production_allows_zero_actual_material_quantity(self):
+        batch=ProductionBatch.objects.create(production_number="PRD-ZERO",finished_product=self.product,recipe=self.recipe,planned_quantity=Decimal("10"),production_location=self.production_location,finished_goods_destination=self.shop,batch_number="ZERO",manufacturing_date=timezone.localdate())
+        complete_production(batch.id,self.user,actual_quantity=Decimal("8"),materials=[{"raw_material":str(self.material.id),"actual_consumed_quantity":"0"}])
+        self.assertEqual(get_available_stock(self.material,self.production_location),Decimal("20.000"))
+        consumption=batch.consumptions.get(raw_material=self.material)
+        self.assertEqual(consumption.actual_consumed_quantity,Decimal("0"))
+        self.assertFalse(StockTransaction.objects.filter(transaction_number__startswith="PRD-ZERO-CON").exists())
+
     def test_production_completion_refreshes_stale_inventory_balance(self):
         InventoryBalance.objects.create(raw_material=self.material,location=self.production_location,current_quantity=Decimal("1"),inventory_value=Decimal("2"),average_unit_cost=Decimal("2"))
         batch=ProductionBatch.objects.create(production_number="PRD-STALE",finished_product=self.product,recipe=self.recipe,planned_quantity=Decimal("10"),production_location=self.production_location,finished_goods_destination=self.shop,batch_number="STALE",manufacturing_date=timezone.localdate())

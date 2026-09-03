@@ -31,8 +31,8 @@ def complete_production(pk, user, actual_quantity=None, materials=None):
     for line in recipe.items.select_related("raw_material", "unit"):
         required = line.required_quantity * scale * (Decimal("1") + line.wastage_percentage / Decimal("100"))
         actual = actual_materials.get(str(line.raw_material_id), required)
-        if actual <= 0:
-            raise ValidationError(f"Actual consumed quantity for {line.raw_material.name} must be positive.")
+        if actual < 0:
+            raise ValidationError(f"Actual consumed quantity for {line.raw_material.name} cannot be negative.")
         StockTransaction.objects.select_for_update().filter(
             raw_material=line.raw_material,
             destination_location=production.production_location,
@@ -52,7 +52,8 @@ def complete_production(pk, user, actual_quantity=None, materials=None):
             standard_required_quantity=required, actual_consumed_quantity=actual,
             unit=line.unit, unit_cost=unit_cost, total_cost=value, variance_quantity=actual-required,
         )
-        post_movement(item=line.raw_material,location=production.production_location,quantity=actual,direction="OUT",transaction_number=f"{production.production_number}-CON-{consumption.id}",transaction_type="PRODUCTION_CONSUMPTION",reference_type="ProductionBatch",reference_id=production.id,unit=line.unit,user=user,remarks=production.remarks,audit_module="production")
+        if actual:
+            post_movement(item=line.raw_material,location=production.production_location,quantity=actual,direction="OUT",transaction_number=f"{production.production_number}-CON-{consumption.id}",transaction_type="PRODUCTION_CONSUMPTION",reference_type="ProductionBatch",reference_id=production.id,unit=line.unit,user=user,remarks=production.remarks,audit_module="production")
 
     total_cost = material_cost + production.additional_cost
     cost_per_unit = total_cost / output
