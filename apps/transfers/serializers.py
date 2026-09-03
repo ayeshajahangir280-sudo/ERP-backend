@@ -1,7 +1,7 @@
 from django.db import transaction
 from rest_framework import serializers
 from .models import MaterialTransfer,MaterialTransferItem,FinishedGoodsTransfer,FinishedGoodsTransferItem
-from .services import complete_immediate_transfer
+from .services import complete_immediate_transfer,repost_received_transfer
 
 class MaterialTransferItemSerializer(serializers.ModelSerializer):
  class Meta:model=MaterialTransferItem;exclude=("transfer",);read_only_fields=("dispatched_quantity","received_quantity","damaged_quantity")
@@ -19,6 +19,8 @@ class MaterialTransferSerializer(serializers.ModelSerializer):
  def update(self,instance,data):
   items=data.pop("items",None);obj=super().update(instance,data)
   if items is not None:
+   if obj.status=="RECEIVED":
+    return repost_received_transfer(obj,self.context["request"].user,items,False)
    obj.items.all().delete()
    for item in items:MaterialTransferItem.objects.create(transfer=obj,**item)
   return obj
@@ -39,6 +41,8 @@ class FinishedGoodsTransferSerializer(serializers.ModelSerializer):
  def update(self,instance,data):
   items=data.pop("items",None);obj=super().update(instance,data)
   if items is not None:
+   if obj.status=="RECEIVED":
+    return repost_received_transfer(obj,self.context["request"].user,items,True)
    obj.items.all().delete()
    for item in items:
     item.pop("batch",None);FinishedGoodsTransferItem.objects.create(transfer=obj,batch="",**item)

@@ -112,6 +112,37 @@ class TransferListTests(TestCase):
         self.assertEqual(get_available_stock(self.raw_material, self.assigned), Decimal("15.000"))
         self.assertEqual(get_available_stock(self.raw_material, self.other), Decimal("5.000"))
 
+    def test_material_transfer_edit_reposts_received_stock_movements(self):
+        self.authenticate(self.admin)
+        StockTransaction.objects.create(
+            transaction_number="TL-RM-CORR-OPEN", transaction_date=timezone.now(),
+            transaction_type="OPENING_STOCK", reference_type="OpeningStock",
+            reference_id=self.raw_material.id, raw_material=self.raw_material,
+            destination_location=self.assigned, quantity_in=20, unit=self.unit,
+            unit_cost=2, total_value=40, created_by=self.admin,
+        )
+        created = self.client.post(
+            "/api/material-transfers/",
+            {
+                "transfer_date": timezone.localdate(),
+                "source_location": self.assigned.id,
+                "destination_location": self.other.id,
+                "items": [{"raw_material": self.raw_material.id, "quantity": 1, "unit": self.unit.id}],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        updated = self.client.patch(
+            f"/api/material-transfers/{created.data['id']}/",
+            {"items": [{"raw_material": self.raw_material.id, "quantity": 11, "unit": self.unit.id}]},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200, updated.data)
+        self.assertEqual(updated.data["items"][0]["quantity"], "11.000")
+        self.assertEqual(updated.data["items"][0]["received_quantity"], "11.000")
+        self.assertEqual(get_available_stock(self.raw_material, self.assigned), Decimal("9.000"))
+        self.assertEqual(get_available_stock(self.raw_material, self.other), Decimal("11.000"))
+
     def test_finished_goods_transfer_create_immediately_receives_and_moves_stock(self):
         self.authenticate(self.admin)
         StockTransaction.objects.create(

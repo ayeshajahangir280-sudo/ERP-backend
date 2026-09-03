@@ -64,6 +64,39 @@ def complete_immediate_transfer(transfer,user,finished=False):
  return receive(transfer,user,lines,finished)
 
 @transaction.atomic
+def repost_received_transfer(transfer,user,items,finished=False):
+ transfer=transfer.__class__.objects.select_for_update().prefetch_related("items").get(pk=transfer.pk)
+ if transfer.status!="RECEIVED":
+  raise ValidationError("Only received transfers can be corrected after posting.")
+ originals=list(StockTransaction.objects.select_for_update().filter(reference_type=transfer.__class__.__name__,reference_id=transfer.id,is_reversal=False).order_by("-created_at","-id"))
+ for original in originals:
+  if hasattr(original,"reversal"):raise ValidationError("Transfer correction has already been reversed.")
+  item=original.raw_material or original.finished_product
+  if original.quantity_in:
+   post_movement(item=item,location=original.destination_location,quantity=original.quantity_in,direction="OUT",transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_OUT",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=original.unit,user=user,outgoing_unit_cost=original.unit_cost,remarks="Transfer quantity correction",reversal_of=original,is_reversal=True,audit_action="Correct",audit_module="transfers")
+  else:
+   post_movement(item=item,location=original.source_location,quantity=original.quantity_out,direction="IN",transaction_number=f"REV-{original.transaction_number}",transaction_type="STOCK_ADJUSTMENT_IN",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=original.unit,user=user,incoming_unit_cost=original.unit_cost,remarks="Transfer quantity correction",reversal_of=original,is_reversal=True,audit_action="Correct",audit_module="transfers")
+ transfer.items.all().delete()
+ transit=_virtual("IN_TRANSIT")
+ for item_data in items:
+  line_model=transfer.items.model
+  if finished:
+   item_data.pop("batch",None)
+   line=line_model.objects.create(transfer=transfer,batch="",**item_data)
+   item=line.finished_product;qty=line.requested_quantity
+  else:
+   line=line_model.objects.create(transfer=transfer,**item_data)
+   item=line.raw_material;qty=line.quantity
+  if qty<=0:raise ValidationError("Transfer quantities must be positive.")
+  out,_=post_movement(item=item,location=transfer.source_location,quantity=qty,direction="OUT",transaction_number=f"{transfer.transfer_number}-{line.id}-COR-OUT",transaction_type="FINISHED_GOODS_TRANSFER_OUT" if finished else "RAW_MATERIAL_TRANSFER_OUT",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=line.unit,user=user,audit_action="Correct",audit_module="transfers")
+  post_movement(item=item,location=transit,quantity=qty,direction="IN",transaction_number=f"{transfer.transfer_number}-{line.id}-COR-TRANSIT",transaction_type="IN_TRANSIT_IN",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=line.unit,user=user,incoming_unit_cost=out.unit_cost,audit_action="Correct",audit_module="transfers")
+  transit_out,_=post_movement(item=item,location=transit,quantity=qty,direction="OUT",transaction_number=f"{transfer.transfer_number}-{line.id}-COR-TO-0",transaction_type="IN_TRANSIT_OUT",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=line.unit,user=user,audit_action="Correct",audit_module="transfers")
+  post_movement(item=item,location=transfer.destination_location,quantity=qty,direction="IN",transaction_number=f"{transfer.transfer_number}-{line.id}-COR-IN-0",transaction_type="FINISHED_GOODS_TRANSFER_IN" if finished else "RAW_MATERIAL_TRANSFER_IN",reference_type=transfer.__class__.__name__,reference_id=transfer.id,unit=line.unit,user=user,incoming_unit_cost=transit_out.unit_cost,audit_action="Correct",audit_module="transfers")
+  line.dispatched_quantity=qty;line.received_quantity=qty;line.damaged_quantity=0;line.save(update_fields=["dispatched_quantity","received_quantity","damaged_quantity"])
+ transfer.save(update_fields=["updated_at"])
+ return transfer
+
+@transaction.atomic
 def cancel_transfer(transfer,user,reason):
  if not str(reason).strip():raise ValidationError("Cancellation reason is required.")
  transfer=transfer.__class__.objects.select_for_update().get(pk=transfer.pk)
