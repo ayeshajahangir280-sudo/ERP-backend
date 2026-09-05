@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.inventory.models import StockTransaction
+from apps.inventory.models import InventoryBalance, StockTransaction
 from apps.inventory.services import get_available_stock
 from apps.locations.models import Location
 from apps.master_data.models import FinishedProduct, ItemCategory, RawMaterial, UnitOfMeasurement
@@ -142,6 +142,33 @@ class TransferListTests(TestCase):
         self.assertEqual(updated.data["items"][0]["received_quantity"], "11.000")
         self.assertEqual(get_available_stock(self.raw_material, self.assigned), Decimal("9.000"))
         self.assertEqual(get_available_stock(self.raw_material, self.other), Decimal("11.000"))
+
+    def test_material_transfer_dispatch_refreshes_stale_source_balance(self):
+        self.authenticate(self.admin)
+        StockTransaction.objects.create(
+            transaction_number="TL-RM-STALE-OPEN", transaction_date=timezone.now(),
+            transaction_type="OPENING_STOCK", reference_type="OpeningStock",
+            reference_id=self.raw_material.id, raw_material=self.raw_material,
+            destination_location=self.assigned, quantity_in=353, unit=self.unit,
+            unit_cost=2, total_value=706, created_by=self.admin,
+        )
+        InventoryBalance.objects.create(
+            raw_material=self.raw_material, location=self.assigned,
+            current_quantity=151, inventory_value=302, average_unit_cost=2,
+        )
+        response = self.client.post(
+            "/api/material-transfers/",
+            {
+                "transfer_date": timezone.localdate(),
+                "source_location": self.assigned.id,
+                "destination_location": self.other.id,
+                "items": [{"raw_material": self.raw_material.id, "quantity": 214, "unit": self.unit.id}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(get_available_stock(self.raw_material, self.assigned), Decimal("139.000"))
+        self.assertEqual(get_available_stock(self.raw_material, self.other), Decimal("214.000"))
 
     def test_finished_goods_transfer_create_immediately_receives_and_moves_stock(self):
         self.authenticate(self.admin)

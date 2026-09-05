@@ -13,22 +13,34 @@ QTY=Decimal("0.001"); MONEY=Decimal("0.0001"); ZERO=Decimal("0")
 def _item_fields(item):
     return {"raw_material":item,"finished_product":None} if item._meta.model_name=="rawmaterial" else {"raw_material":None,"finished_product":item}
 
+def _ledger_totals(item,location):
+    fields=_item_fields(item)
+    field="raw_material" if fields["raw_material"] else "finished_product"
+    entries=StockTransaction.objects.filter(**{field:item}).filter(Q(source_location=location)|Q(destination_location=location))
+    quantity=value=ZERO
+    for entry in entries:
+        if entry.destination_location_id==location.id:quantity+=entry.quantity_in;value+=abs(entry.total_value)
+        if entry.source_location_id==location.id:quantity-=entry.quantity_out;value-=abs(entry.total_value)
+    return quantity,value
+
+def _sync_locked_balance(balance,item,location):
+    quantity,value=_ledger_totals(item,location)
+    if quantity<0:raise ValidationError("Existing ledger contains negative stock and cannot initialize a balance.")
+    inventory_value=max(ZERO,value).quantize(MONEY,rounding=ROUND_HALF_UP)
+    average=(inventory_value/quantity).quantize(MONEY,rounding=ROUND_HALF_UP) if quantity else ZERO
+    if balance.current_quantity!=quantity or balance.inventory_value!=inventory_value or balance.average_unit_cost!=average:
+        balance.current_quantity=quantity;balance.inventory_value=inventory_value;balance.average_unit_cost=average;balance.revision+=1
+        balance.save(update_fields=["current_quantity","inventory_value","average_unit_cost","revision","updated_at"])
+    return balance
+
 def _locked_balance(item,location):
     fields=_item_fields(item); lookup={**fields,"location":location}
     for attempt in range(3):
         try:
             balance,created=InventoryBalance.objects.get_or_create(**lookup)
             balance=InventoryBalance.objects.select_for_update().get(pk=balance.pk)
-            if created:
-                field="raw_material" if fields["raw_material"] else "finished_product"
-                entries=StockTransaction.objects.filter(**{field:item}).filter(Q(source_location=location)|Q(destination_location=location))
-                quantity=value=ZERO
-                for entry in entries:
-                    if entry.destination_location_id==location.id:quantity+=entry.quantity_in;value+=abs(entry.total_value)
-                    if entry.source_location_id==location.id:quantity-=entry.quantity_out;value-=abs(entry.total_value)
-                if quantity<0:raise ValidationError("Existing ledger contains negative stock and cannot initialize a balance.")
-                balance.current_quantity=quantity;balance.inventory_value=max(ZERO,value)
-                balance.average_unit_cost=balance.inventory_value/quantity if quantity else ZERO;balance.save()
+            if created or StockTransaction.objects.filter(Q(source_location=location)|Q(destination_location=location),**{"raw_material" if fields["raw_material"] else "finished_product":item}).exists():
+                balance=_sync_locked_balance(balance,item,location)
             return balance
         except IntegrityError:
             if attempt==2:raise
